@@ -805,6 +805,8 @@
 }
 
 .zoomable-diagram-surface {
+  --diagram-surface-padding: 24px; /* Why: fit math uses DIAGRAM_SURFACE_PADDING. */
+
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -845,7 +847,7 @@
   justify-content: center;
   min-width: 100%;
   min-height: 100%;
-  padding: 24px;
+  padding: var(--diagram-surface-padding);
 }
 
 .zoomable-diagram-surface-content {
