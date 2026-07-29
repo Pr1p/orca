@@ -6994,7 +6994,11 @@
           "dd67a1b6e1": "Muestra GitLab en el selector de fuentes de Tareas y en los accesos directos de la barra lateral.",
           "7c5d7fdc20": "GitLab",
           "1db47236cd": "Muestra GitHub en el selector de fuentes de Tareas y en los accesos directos de la barra lateral.",
-          "e14063e727": "GitHub"
+          "e14063e727": "GitHub",
+          "e2e7aafd3e": "Activar una fuente solo controla su visibilidad en Tareas. Conecta y configura cada proveedor en Integraciones.",
+          "a618553fa5": "Abrir Integraciones",
+          "9340b486f1": "No configurado",
+          "7cb1bd2777": "Configurar en Integraciones"
         },
         "TerminalAppearanceSection": {
           "a14a427ae4": "Grosor de la línea divisoria del panel.",

@@ -1,4 +1,4 @@
-import { Check, Github, Gitlab } from 'lucide-react'
+import { AlertCircle, ArrowUpRight, Check, Github, Gitlab } from 'lucide-react'
 import type { GlobalSettings, TaskProvider } from '../../../../shared/types'
 import {
   TASK_PROVIDERS,
@@ -12,6 +12,8 @@ import { Label } from '../ui/label'
 import { SearchableSetting } from './SearchableSetting'
 import { SettingsSubsectionHeader } from './SettingsFormControls'
 import { translate } from '@/i18n/i18n'
+import { useAppStore } from '@/store'
+import { useTaskProviderConnectionStatus } from './use-task-provider-connection-status'
 
 type TasksPaneProps = {
   settings: GlobalSettings
@@ -80,6 +82,12 @@ const TASK_PROVIDER_OPTIONS: readonly {
 
 export function TasksPane({ settings, updateSettings }: TasksPaneProps): React.JSX.Element {
   const visibleProviders = normalizeVisibleTaskProviders(settings.visibleTaskProviders)
+  const connectionStatus = useTaskProviderConnectionStatus(settings)
+  const openSettingsTarget = useAppStore((s) => s.openSettingsTarget)
+
+  const goToIntegrations = (): void => {
+    openSettingsTarget({ pane: 'integrations', repoId: null })
+  }
 
   const toggleProvider = (provider: TaskProvider): void => {
     const isVisible = visibleProviders.includes(provider)
@@ -108,6 +116,24 @@ export function TasksPane({ settings, updateSettings }: TasksPaneProps): React.J
           )}
         />
 
+        <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+          <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
+          <span className="min-w-0 flex-1">
+            {translate(
+              'auto.components.settings.TasksPane.e2e7aafd3e',
+              'Turning on a source only controls visibility in Tasks. Connect and configure each provider under Integrations.'
+            )}
+            <button
+              type="button"
+              onClick={goToIntegrations}
+              className="ml-1 inline-flex items-center gap-0.5 font-medium underline underline-offset-2 hover:opacity-80"
+            >
+              {translate('auto.components.settings.TasksPane.a618553fa5', 'Open Integrations')}
+              <ArrowUpRight className="size-3" />
+            </button>
+          </span>
+        </div>
+
         <SearchableSetting
           title={translate('auto.components.settings.TasksPane.f71d8a9dd3', 'Task Providers')}
           description={translate(
@@ -131,50 +157,76 @@ export function TasksPane({ settings, updateSettings }: TasksPaneProps): React.J
           {TASK_PROVIDER_OPTIONS.map((option) => {
             const enabled = visibleProviders.includes(option.id)
             const isLastEnabled = enabled && visibleProviders.length === 1
+            const needsSetup = enabled && connectionStatus[option.id] === 'not-connected'
             const Icon = option.Icon
 
             return (
-              <button
-                key={option.id}
-                type="button"
-                role="checkbox"
-                aria-checked={enabled}
-                aria-disabled={isLastEnabled}
-                onClick={() => toggleProvider(option.id)}
-                className={cn(
-                  'flex w-full items-center gap-3 rounded-md border border-border/60 px-3 py-2.5 text-left transition-colors',
-                  enabled
-                    ? 'bg-accent/70 text-accent-foreground'
-                    : 'bg-transparent hover:bg-muted/50',
-                  isLastEnabled && 'cursor-not-allowed'
-                )}
-              >
-                <span
+              <div key={option.id} className="space-y-1">
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={enabled}
+                  aria-disabled={isLastEnabled}
+                  onClick={() => toggleProvider(option.id)}
                   className={cn(
-                    'flex size-7 shrink-0 items-center justify-center rounded-md border',
+                    'flex w-full items-center gap-3 rounded-md border border-border/60 px-3 py-2.5 text-left transition-colors',
                     enabled
-                      ? 'border-foreground/20 bg-background/70'
-                      : 'border-border/60 bg-muted/40 text-muted-foreground'
+                      ? 'bg-accent/70 text-accent-foreground'
+                      : 'bg-transparent hover:bg-muted/50',
+                    isLastEnabled && 'cursor-not-allowed'
                   )}
                 >
-                  <Icon className="size-3.5" />
-                </span>
-                <span className="min-w-0 flex-1 space-y-0.5">
-                  <Label className="cursor-inherit">{option.label}</Label>
-                  <span className="block text-xs text-muted-foreground">{option.description}</span>
-                </span>
-                <span
-                  aria-hidden
-                  className={cn(
-                    'flex size-4 shrink-0 items-center justify-center rounded border text-[10px]',
-                    enabled
-                      ? 'border-foreground/50 bg-foreground text-background'
-                      : 'border-border bg-background'
-                  )}
-                >
-                  {enabled ? <Check className="size-3" /> : null}
-                </span>
-              </button>
+                  <span
+                    className={cn(
+                      'flex size-7 shrink-0 items-center justify-center rounded-md border',
+                      enabled
+                        ? 'border-foreground/20 bg-background/70'
+                        : 'border-border/60 bg-muted/40 text-muted-foreground'
+                    )}
+                  >
+                    <Icon className="size-3.5" />
+                  </span>
+                  <span className="min-w-0 flex-1 space-y-0.5">
+                    <Label className="cursor-inherit">{option.label}</Label>
+                    <span className="block text-xs text-muted-foreground">
+                      {option.description}
+                    </span>
+                    {needsSetup ? (
+                      <span className="flex items-center gap-1 pt-0.5 font-medium text-amber-600 dark:text-amber-400">
+                        <AlertCircle className="size-3" />
+                        {translate(
+                          'auto.components.settings.TasksPane.9340b486f1',
+                          'Not configured'
+                        )}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span
+                    aria-hidden
+                    className={cn(
+                      'flex size-4 shrink-0 items-center justify-center rounded border text-[10px]',
+                      enabled
+                        ? 'border-foreground/50 bg-foreground text-background'
+                        : 'border-border bg-background'
+                    )}
+                  >
+                    {enabled ? <Check className="size-3" /> : null}
+                  </span>
+                </button>
+                {needsSetup ? (
+                  <button
+                    type="button"
+                    onClick={goToIntegrations}
+                    className="ml-10 inline-flex items-center gap-1 text-xs font-medium text-foreground/70 underline underline-offset-2 hover:text-foreground"
+                  >
+                    {translate(
+                      'auto.components.settings.TasksPane.7cb1bd2777',
+                      'Configure in Integrations'
+                    )}
+                    <ArrowUpRight className="size-3" />
+                  </button>
+                ) : null}
+              </div>
             )
           })}
         </SearchableSetting>

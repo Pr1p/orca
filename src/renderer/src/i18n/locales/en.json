@@ -7054,7 +7054,11 @@
           "dd67a1b6e1": "Show GitLab in the Tasks source picker and sidebar shortcuts.",
           "7c5d7fdc20": "GitLab",
           "1db47236cd": "Show GitHub in the Tasks source picker and sidebar shortcuts.",
-          "e14063e727": "GitHub"
+          "e14063e727": "GitHub",
+          "e2e7aafd3e": "Turning on a source only controls visibility in Tasks. Connect and configure each provider under Integrations.",
+          "a618553fa5": "Open Integrations",
+          "9340b486f1": "Not configured",
+          "7cb1bd2777": "Configure in Integrations"
         },
         "TerminalAppearanceSection": {
           "a14a427ae4": "Thickness of the pane divider line.",
