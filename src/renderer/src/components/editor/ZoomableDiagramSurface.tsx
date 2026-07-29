@@ -92,6 +92,7 @@ export default function ZoomableDiagramSurface({
   const [zoom, setZoom] = useState(1)
   const [isPanReady, setIsPanReady] = useState(false)
   const [isPanning, setIsPanning] = useState(false)
+  const [surfaceElement, setSurfaceElement] = useState<HTMLDivElement | null>(null)
   const [surfaceSize, setSurfaceSize] = useState<DiagramSurfaceDimensions | null>(null)
   const [diagramSize, setDiagramSize] = useState<DiagramSurfaceDimensions | null>(null)
   const shortcutPlatform = useMemo(() => getShortcutPlatform(), [])
@@ -136,24 +137,18 @@ export default function ZoomableDiagramSurface({
     [applyZoomChange]
   )
 
-  const setSurfaceRef = useCallback(
-    (surface: HTMLDivElement | null) => {
-      if (surfaceRef.current) {
-        surfaceRef.current.removeEventListener('wheel', handleWheel)
-      }
-      surfaceRef.current = surface
-      if (surface) {
-        const nextSize = getElementSurfaceSize(surface)
-        setSurfaceSize((currentSize) =>
-          dimensionsEqual(currentSize, nextSize) ? currentSize : nextSize
-        )
-        surface.addEventListener('wheel', handleWheel, { passive: false })
-      } else {
-        setSurfaceSize(null)
-      }
-    },
-    [handleWheel]
-  )
+  const setSurfaceRef = useCallback((surface: HTMLDivElement | null) => {
+    surfaceRef.current = surface
+    setSurfaceElement(surface)
+    if (surface) {
+      const nextSize = getElementSurfaceSize(surface)
+      setSurfaceSize((currentSize) =>
+        dimensionsEqual(currentSize, nextSize) ? currentSize : nextSize
+      )
+    } else {
+      setSurfaceSize(null)
+    }
+  }, [])
 
   const updateDiagramSize = useCallback(() => {
     const svg = contentRef.current?.querySelector('svg') ?? null
@@ -168,14 +163,13 @@ export default function ZoomableDiagramSurface({
   }, [resetKey])
 
   useEffect(() => {
-    const surface = surfaceRef.current
-    if (!surface) {
+    if (!surfaceElement) {
       setSurfaceSize(null)
       return
     }
 
     const updateSize = () => {
-      const nextSize = getElementSurfaceSize(surface)
+      const nextSize = getElementSurfaceSize(surfaceElement)
       setSurfaceSize((currentSize) =>
         dimensionsEqual(currentSize, nextSize) ? currentSize : nextSize
       )
@@ -186,9 +180,18 @@ export default function ZoomableDiagramSurface({
     }
 
     const observer = new ResizeObserver(updateSize)
-    observer.observe(surface)
+    observer.observe(surfaceElement)
     return () => observer.disconnect()
-  }, [])
+  }, [surfaceElement])
+
+  useEffect(() => {
+    if (!surfaceElement) {
+      return
+    }
+
+    surfaceElement.addEventListener('wheel', handleWheel, { passive: false })
+    return () => surfaceElement.removeEventListener('wheel', handleWheel)
+  }, [handleWheel, surfaceElement])
 
   useEffect(() => {
     const content = contentRef.current
@@ -207,7 +210,7 @@ export default function ZoomableDiagramSurface({
     return () => {
       mutationObserver?.disconnect()
     }
-  }, [children, diagramKey, updateDiagramSize])
+  }, [diagramKey, updateDiagramSize])
 
   const finishPanDrag = useCallback((pointerId: number) => {
     const surface = surfaceRef.current

@@ -4,7 +4,13 @@ import { useAppStore } from '@/store'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
 import { installEditorSaveShortcut } from './editor-shortcuts'
+import {
+  getMermaidTextDiagramModeOptions,
+  isMermaidTextDiagramMode,
+  type MermaidTextDiagramMode
+} from './mermaid-text-diagram-view-modes'
 import MermaidBlock from './MermaidBlock'
+import { useDebouncedMermaidDiagramContent } from './use-debounced-mermaid-diagram-content'
 import ZoomableDiagramSurface from './ZoomableDiagramSurface'
 
 type MermaidViewerProps = {
@@ -15,29 +21,6 @@ type MermaidViewerProps = {
   readOnly?: boolean
 }
 
-type MermaidTextDiagramMode = 'code' | 'split' | 'chart'
-
-const VIEW_OPTIONS = [
-  {
-    value: 'code',
-    get label() {
-      return translate('auto.components.editor.MermaidViewer.code', 'Code')
-    }
-  },
-  {
-    value: 'split',
-    get label() {
-      return translate('auto.components.editor.MermaidViewer.split', 'Split')
-    }
-  },
-  {
-    value: 'chart',
-    get label() {
-      return translate('auto.components.editor.MermaidViewer.chart', 'Chart')
-    }
-  }
-] as const satisfies readonly { value: MermaidTextDiagramMode; label: string }[]
-
 export default function MermaidViewer({
   content,
   filePath,
@@ -47,6 +30,7 @@ export default function MermaidViewer({
 }: MermaidViewerProps): React.JSX.Element {
   const rootRef = useRef<HTMLDivElement | null>(null)
   const latestContentRef = useRef(content)
+  const syncedFilePathRef = useRef(filePath)
   const [mode, setMode] = useState<MermaidTextDiagramMode>('chart')
   const [draftContent, setDraftContent] = useState(content)
   const settings = useAppStore((s) => s.settings)
@@ -56,6 +40,8 @@ export default function MermaidViewer({
 
   const filename = useMemo(() => filePath.split(/[/\\]/).pop() || filePath, [filePath])
   const trimmedContent = useMemo(() => draftContent.trim(), [draftContent])
+  const renderContent = useDebouncedMermaidDiagramContent(trimmedContent)
+  const viewOptions = getMermaidTextDiagramModeOptions('auto.components.editor.MermaidViewer')
   const showSource = mode !== 'chart' || trimmedContent.length === 0
   const showDiagram = mode !== 'code' && trimmedContent.length > 0
   const sourceLabel = translate('auto.components.editor.MermaidViewer.source', 'Mermaid source')
@@ -65,7 +51,12 @@ export default function MermaidViewer({
   )
 
   useEffect(() => {
+    if (syncedFilePathRef.current === filePath) {
+      return
+    }
+    syncedFilePathRef.current = filePath
     setDraftContent(content)
+    latestContentRef.current = content
   }, [content, filePath])
 
   useEffect(() => {
@@ -105,12 +96,12 @@ export default function MermaidViewer({
           spacing={0}
           value={mode}
           onValueChange={(nextMode) => {
-            if (nextMode) {
-              setMode(nextMode as MermaidTextDiagramMode)
+            if (isMermaidTextDiagramMode(nextMode)) {
+              setMode(nextMode)
             }
           }}
         >
-          {VIEW_OPTIONS.map((option) => (
+          {viewOptions.map((option) => (
             <ToggleGroupItem key={option.value} value={option.value}>
               {option.label}
             </ToggleGroupItem>
@@ -133,11 +124,11 @@ export default function MermaidViewer({
         {showDiagram ? (
           <ZoomableDiagramSurface
             className="mermaid-text-diagram-chart"
-            diagramKey={trimmedContent}
+            diagramKey={renderContent}
             resetKey={filePath}
             label={translate('auto.components.editor.MermaidViewer.mermaid', 'Mermaid')}
           >
-            <MermaidBlock content={trimmedContent} isDark={isDark} htmlLabels={false} />
+            <MermaidBlock content={renderContent} isDark={isDark} htmlLabels={false} />
           </ZoomableDiagramSurface>
         ) : null}
       </div>

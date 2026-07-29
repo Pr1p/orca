@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -26,13 +26,16 @@ vi.mock('./ZoomableDiagramSurface', () => ({
 }))
 
 import MermaidViewer from './MermaidViewer'
+import { MERMAID_RENDER_DEBOUNCE_MS } from './use-debounced-mermaid-diagram-content'
 
 afterEach(() => {
   cleanup()
+  vi.useRealTimers()
 })
 
 describe('MermaidViewer', () => {
   it('edits source in split mode and rerenders the diagram from the draft', () => {
+    vi.useFakeTimers()
     const onContentChange = vi.fn()
 
     render(
@@ -49,6 +52,9 @@ describe('MermaidViewer', () => {
     })
 
     expect(onContentChange).toHaveBeenLastCalledWith('flowchart TD\n  A --> C')
+    act(() => {
+      vi.advanceTimersByTime(MERMAID_RENDER_DEBOUNCE_MS)
+    })
     expect(screen.getByTestId('diagram-surface').getAttribute('data-diagram-key')).toBe(
       'flowchart TD\n  A --> C'
     )
@@ -71,6 +77,8 @@ describe('MermaidViewer', () => {
   })
 
   it('keeps a new empty diagram editable after the first input', () => {
+    vi.useFakeTimers()
+
     render(<MermaidViewer content="" filePath="/repo/new.mmd" onContentChange={vi.fn()} />)
 
     fireEvent.change(screen.getByLabelText('Mermaid source'), {
@@ -81,8 +89,60 @@ describe('MermaidViewer', () => {
     expect((screen.getByLabelText('Mermaid source') as HTMLTextAreaElement).value).toBe(
       'flowchart LR\n  Start --> Done'
     )
+    act(() => {
+      vi.advanceTimersByTime(MERMAID_RENDER_DEBOUNCE_MS)
+    })
     expect(screen.getByTestId('diagram-surface').getAttribute('data-diagram-key')).toBe(
       'flowchart LR\n  Start --> Done'
     )
+  })
+
+  it('keeps the draft when parent content echoes back for the same file', () => {
+    const { rerender } = render(
+      <MermaidViewer
+        content={'flowchart TD\n  A --> B'}
+        filePath="/repo/demo.mmd"
+        onContentChange={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Code' }))
+    fireEvent.change(screen.getByLabelText('Mermaid source'), {
+      target: { value: 'flowchart TD\n  A --> Draft' }
+    })
+
+    rerender(
+      <MermaidViewer
+        content={'flowchart TD\n  A --> Echo'}
+        filePath="/repo/demo.mmd"
+        onContentChange={vi.fn()}
+      />
+    )
+
+    expect((screen.getByLabelText('Mermaid source') as HTMLTextAreaElement).value).toBe(
+      'flowchart TD\n  A --> Draft'
+    )
+  })
+
+  it('keeps read-only files immutable and suppresses the save shortcut', () => {
+    const onSave = vi.fn()
+
+    render(
+      <MermaidViewer
+        content={'flowchart TD\n  A --> B'}
+        filePath="/repo/demo.mmd"
+        onContentChange={vi.fn()}
+        onSave={onSave}
+        readOnly
+      />
+    )
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Code' }))
+    const source = screen.getByLabelText('Mermaid source') as HTMLTextAreaElement
+    const modifier = navigator.userAgent.includes('Mac') ? { metaKey: true } : { ctrlKey: true }
+    fireEvent.keyDown(source, { key: 's', code: 'KeyS', ...modifier })
+
+    expect(source.readOnly).toBe(true)
+    expect(onSave).not.toHaveBeenCalled()
   })
 })

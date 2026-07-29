@@ -3,31 +3,14 @@ import { type JSX, useState } from 'react'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
+import {
+  getMermaidTextDiagramModeOptions,
+  isMermaidTextDiagramMode,
+  type MermaidTextDiagramMode
+} from './mermaid-text-diagram-view-modes'
 import MermaidBlock from './MermaidBlock'
+import { useDebouncedMermaidDiagramContent } from './use-debounced-mermaid-diagram-content'
 import ZoomableDiagramSurface from './ZoomableDiagramSurface'
-
-type MermaidTextDiagramMode = 'code' | 'split' | 'chart'
-
-const MODE_OPTIONS = [
-  {
-    value: 'code',
-    get label() {
-      return translate('auto.components.editor.RichMarkdownMermaidViews.code', 'Code')
-    }
-  },
-  {
-    value: 'split',
-    get label() {
-      return translate('auto.components.editor.RichMarkdownMermaidViews.split', 'Split')
-    }
-  },
-  {
-    value: 'chart',
-    get label() {
-      return translate('auto.components.editor.RichMarkdownMermaidViews.chart', 'Chart')
-    }
-  }
-] as const satisfies readonly { value: MermaidTextDiagramMode; label: string }[]
 
 type RichMarkdownMermaidViewsProps = {
   content: string
@@ -40,6 +23,10 @@ export default function RichMarkdownMermaidViews({
 }: RichMarkdownMermaidViewsProps): JSX.Element {
   const [mode, setMode] = useState<MermaidTextDiagramMode>('split')
   const trimmedContent = content.trim()
+  const renderContent = useDebouncedMermaidDiagramContent(trimmedContent)
+  const modeOptions = getMermaidTextDiagramModeOptions(
+    'auto.components.editor.RichMarkdownMermaidViews'
+  )
   const showSource = mode !== 'chart' || trimmedContent.length === 0
   const showDiagram = mode !== 'code' && trimmedContent.length > 0
 
@@ -54,12 +41,12 @@ export default function RichMarkdownMermaidViews({
         className="rich-markdown-mermaid-view-toggle"
         contentEditable={false}
         onValueChange={(nextMode) => {
-          if (nextMode) {
-            setMode(nextMode as MermaidTextDiagramMode)
+          if (isMermaidTextDiagramMode(nextMode)) {
+            setMode(nextMode)
           }
         }}
       >
-        {MODE_OPTIONS.map((option) => (
+        {modeOptions.map((option) => (
           <ToggleGroupItem key={option.value} value={option.value}>
             {option.label}
           </ToggleGroupItem>
@@ -73,13 +60,13 @@ export default function RichMarkdownMermaidViews({
         {showDiagram ? (
           <div contentEditable={false} className="mermaid-preview">
             <ZoomableDiagramSurface
-              diagramKey={trimmedContent}
+              diagramKey={renderContent}
               label={translate(
                 'auto.components.editor.RichMarkdownMermaidViews.mermaid',
                 'Mermaid'
               )}
             >
-              <MermaidBlock content={trimmedContent} isDark={isDark} htmlLabels={false} />
+              <MermaidBlock content={renderContent} isDark={isDark} htmlLabels={false} />
             </ZoomableDiagramSurface>
           </div>
         ) : null}
