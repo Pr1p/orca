@@ -145,4 +145,33 @@ describe('MermaidViewer', () => {
     expect(source.readOnly).toBe(true)
     expect(onSave).not.toHaveBeenCalled()
   })
+
+  it('flushes the diagram immediately when switching to a different file', () => {
+    vi.useFakeTimers()
+
+    const { rerender } = render(
+      <MermaidViewer
+        content={'flowchart TD\n  A --> B'}
+        filePath="/repo/first.mmd"
+        onContentChange={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Chart' }))
+    expect(screen.getByTestId('diagram-surface').getAttribute('data-diagram-key')).toBe(
+      'flowchart TD\n  A --> B'
+    )
+
+    rerender(
+      <MermaidViewer
+        content={'flowchart TD\n  X --> Y'}
+        filePath="/repo/second.mmd"
+        onContentChange={vi.fn()}
+      />
+    )
+
+    expect(screen.getByTestId('diagram-surface').getAttribute('data-diagram-key')).toBe(
+      'flowchart TD\n  X --> Y'
+    )
+  })
 })
