@@ -113,7 +113,7 @@ describe('MermaidViewer', () => {
 
     rerender(
       <MermaidViewer
-        content={'flowchart TD\n  A --> Echo'}
+        content={'flowchart TD\n  A --> Draft'}
         filePath="/repo/demo.mmd"
         onContentChange={vi.fn()}
       />
@@ -121,6 +121,30 @@ describe('MermaidViewer', () => {
 
     expect((screen.getByLabelText('Mermaid source') as HTMLTextAreaElement).value).toBe(
       'flowchart TD\n  A --> Draft'
+    )
+  })
+
+  it('accepts external content updates for the same file (reload, external edit)', () => {
+    const { rerender } = render(
+      <MermaidViewer
+        content={'flowchart TD\n  A --> B'}
+        filePath="/repo/demo.mmd"
+        onContentChange={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Split' }))
+
+    rerender(
+      <MermaidViewer
+        content={'flowchart TD\n  A --> Reloaded'}
+        filePath="/repo/demo.mmd"
+        onContentChange={vi.fn()}
+      />
+    )
+
+    expect((screen.getByLabelText('Mermaid source') as HTMLTextAreaElement).value).toBe(
+      'flowchart TD\n  A --> Reloaded'
     )
   })
 
