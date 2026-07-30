@@ -30,17 +30,24 @@ export default function MermaidViewer({
 }: MermaidViewerProps): React.JSX.Element {
   const rootRef = useRef<HTMLDivElement | null>(null)
   const latestContentRef = useRef(content)
-  const syncedFilePathRef = useRef(filePath)
   const [mode, setMode] = useState<MermaidTextDiagramMode>('chart')
   const [draftContent, setDraftContent] = useState(content)
+  const [syncedFilePath, setSyncedFilePath] = useState(filePath)
   const settings = useAppStore((s) => s.settings)
   const isDark =
     settings?.theme === 'dark' ||
     (settings?.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
 
+  // Sync draft on file switch during render so debounce hook sees fresh content
+  if (syncedFilePath !== filePath) {
+    setSyncedFilePath(filePath)
+    setDraftContent(content)
+    latestContentRef.current = content
+  }
+
   const filename = useMemo(() => filePath.split(/[/\\]/).pop() || filePath, [filePath])
   const trimmedContent = useMemo(() => draftContent.trim(), [draftContent])
-  const renderContent = useDebouncedMermaidDiagramContent(trimmedContent)
+  const renderContent = useDebouncedMermaidDiagramContent(trimmedContent, filePath)
   const viewOptions = getMermaidTextDiagramModeOptions('auto.components.editor.MermaidViewer')
   const showSource = mode !== 'chart' || trimmedContent.length === 0
   const showDiagram = mode !== 'code' && trimmedContent.length > 0
@@ -49,15 +56,6 @@ export default function MermaidViewer({
     'auto.components.editor.MermaidViewer.sourcePlaceholder',
     'Type Mermaid source...'
   )
-
-  useEffect(() => {
-    if (syncedFilePathRef.current === filePath) {
-      return
-    }
-    syncedFilePathRef.current = filePath
-    setDraftContent(content)
-    latestContentRef.current = content
-  }, [content, filePath])
 
   useEffect(() => {
     latestContentRef.current = draftContent
