@@ -30,19 +30,31 @@ export default function MermaidViewer({
 }: MermaidViewerProps): React.JSX.Element {
   const rootRef = useRef<HTMLDivElement | null>(null)
   const latestContentRef = useRef(content)
+  const lastEmittedContentRef = useRef(content)
   const [mode, setMode] = useState<MermaidTextDiagramMode>('chart')
   const [draftContent, setDraftContent] = useState(content)
   const [syncedFilePath, setSyncedFilePath] = useState(filePath)
+  const [syncedContent, setSyncedContent] = useState(content)
   const settings = useAppStore((s) => s.settings)
   const isDark =
     settings?.theme === 'dark' ||
     (settings?.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
 
-  // Sync draft on file switch during render so debounce hook sees fresh content
+  // File switch: immediate sync so debounce hook flushes. Same-file: only accept
+  // content that differs from what we last emitted (external reload, not echo).
   if (syncedFilePath !== filePath) {
     setSyncedFilePath(filePath)
+    setSyncedContent(content)
     setDraftContent(content)
+    lastEmittedContentRef.current = content
     latestContentRef.current = content
+  } else if (content !== syncedContent) {
+    setSyncedContent(content)
+    if (content !== lastEmittedContentRef.current) {
+      setDraftContent(content)
+      lastEmittedContentRef.current = content
+      latestContentRef.current = content
+    }
   }
 
   const filename = useMemo(() => filePath.split(/[/\\]/).pop() || filePath, [filePath])
@@ -78,6 +90,7 @@ export default function MermaidViewer({
       setMode('split')
     }
     setDraftContent(nextContent)
+    lastEmittedContentRef.current = nextContent
     onContentChange?.(nextContent)
   }
 
