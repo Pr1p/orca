@@ -60,12 +60,6 @@ import { sanitizeTaskResumeState } from './ui-slice-hydration-values'
 
 const MAX_LEFT_SIDEBAR_WIDTH = 500
 const MAX_RIGHT_SIDEBAR_WIDTH = 4000
-const DEFAULT_ON_PORTS_STATUS_BAR_ITEM: StatusBarItem = 'ports'
-const DEFAULT_ON_KIMI_STATUS_BAR_ITEM: StatusBarItem = 'kimi'
-const DEFAULT_ON_MINIMAX_STATUS_BAR_ITEM: StatusBarItem = 'minimax'
-const DEFAULT_ON_ANTIGRAVITY_STATUS_BAR_ITEM: StatusBarItem = 'antigravity'
-const DEFAULT_ON_GROK_STATUS_BAR_ITEM: StatusBarItem = 'grok'
-
 export function createUiHydrationActions(set: UISliceSet, _get: UISliceGet): Partial<UISlice> {
   return {
     hydratePersistedUI: (ui, source = 'sync') =>
@@ -88,39 +82,45 @@ export function createUiHydrationActions(set: UISliceSet, _get: UISliceGet): Par
         const statusBarItemsWithPorts: StatusBarItem[] =
           ui._portsStatusBarDefaultAdded || migratedStatusBarItems.includes('ports')
             ? migratedStatusBarItems
-            : [...migratedStatusBarItems, DEFAULT_ON_PORTS_STATUS_BAR_ITEM]
+            : [...migratedStatusBarItems, 'ports']
         const statusBarItems: StatusBarItem[] =
           ui._kimiStatusBarDefaultAdded || statusBarItemsWithPorts.includes('kimi')
             ? statusBarItemsWithPorts
-            : [...statusBarItemsWithPorts, DEFAULT_ON_KIMI_STATUS_BAR_ITEM]
+            : [...statusBarItemsWithPorts, 'kimi']
         const statusBarItemsWithMiniMax: StatusBarItem[] =
           ui._minimaxStatusBarDefaultAdded || statusBarItems.includes('minimax')
             ? statusBarItems
-            : [...statusBarItems, DEFAULT_ON_MINIMAX_STATUS_BAR_ITEM]
+            : [...statusBarItems, 'minimax']
         const statusBarItemsWithAntigravity: StatusBarItem[] =
           ui._antigravityStatusBarDefaultAdded || statusBarItemsWithMiniMax.includes('antigravity')
             ? statusBarItemsWithMiniMax
-            : [...statusBarItemsWithMiniMax, DEFAULT_ON_ANTIGRAVITY_STATUS_BAR_ITEM]
+            : [...statusBarItemsWithMiniMax, 'antigravity']
         const statusBarItemsWithGrok: StatusBarItem[] =
           ui._grokStatusBarDefaultAdded || statusBarItemsWithAntigravity.includes('grok')
             ? statusBarItemsWithAntigravity
-            : [...statusBarItemsWithAntigravity, DEFAULT_ON_GROK_STATUS_BAR_ITEM]
+            : [...statusBarItemsWithAntigravity, 'grok']
+        const statusBarItemsWithZhipu: StatusBarItem[] =
+          ui._zhipuStatusBarDefaultAdded || statusBarItemsWithGrok.includes('zhipu')
+            ? statusBarItemsWithGrok
+            : [...statusBarItemsWithGrok, 'zhipu']
         if (
           (!ui._portsStatusBarDefaultAdded ||
             !ui._kimiStatusBarDefaultAdded ||
             !ui._minimaxStatusBarDefaultAdded ||
             !ui._antigravityStatusBarDefaultAdded ||
-            !ui._grokStatusBarDefaultAdded) &&
+            !ui._grokStatusBarDefaultAdded ||
+            !ui._zhipuStatusBarDefaultAdded) &&
           typeof window !== 'undefined'
         ) {
           window.api.ui
             .set({
-              statusBarItems: statusBarItemsWithGrok,
+              statusBarItems: statusBarItemsWithZhipu,
               _portsStatusBarDefaultAdded: true,
               _kimiStatusBarDefaultAdded: true,
               _minimaxStatusBarDefaultAdded: true,
               _antigravityStatusBarDefaultAdded: true,
-              _grokStatusBarDefaultAdded: true
+              _grokStatusBarDefaultAdded: true,
+              _zhipuStatusBarDefaultAdded: true
             })
             .catch(console.error)
         }
@@ -193,7 +193,7 @@ export function createUiHydrationActions(set: UISliceSet, _get: UISliceGet): Par
           workspaceBoardOpacity: clampWorkspaceBoardOpacity(ui.workspaceBoardOpacity),
           workspaceBoardColumnWidth: clampWorkspaceBoardColumnWidth(ui.workspaceBoardColumnWidth),
           syncTaskStatusFromWorkspaceBoard: ui.syncTaskStatusFromWorkspaceBoard === true,
-          statusBarItems: statusBarItemsWithGrok,
+          statusBarItems: statusBarItemsWithZhipu,
           statusBarVisible: ui.statusBarVisible ?? true,
           usagePercentageDisplay: normalizeUsagePercentageDisplay(ui.usagePercentageDisplay),
           statusBarUsageMode: normalizeStatusBarUsageMode(ui.statusBarUsageMode),
