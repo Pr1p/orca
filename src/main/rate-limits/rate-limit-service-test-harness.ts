@@ -10,6 +10,8 @@ import { fetchGrokRateLimits } from './grok-fetcher'
 import { readGrokAuthSession } from './grok-auth'
 import { fetchOpenCodeGoUsage } from './opencode-go-usage-source-selection'
 import { hasMiniMaxSessionCookie } from '../minimax/minimax-cookie-store'
+import { fetchZhipuRateLimits } from './zhipu-fetcher'
+import { hasZhipuCredentials, readZhipuCredentials } from '../zhipu/zhipu-credential-store'
 
 export type Deferred<T> = {
   promise: Promise<T>
@@ -89,6 +91,7 @@ export function mockFreshBackgroundProviderFetches(): void {
   vi.mocked(fetchKimiRateLimits).mockImplementation(async () => okProvider('kimi', 0))
   vi.mocked(fetchMiniMaxRateLimits).mockImplementation(async () => okProvider('minimax', 0))
   vi.mocked(fetchGrokRateLimits).mockImplementation(async () => unavailableProvider('grok'))
+  vi.mocked(fetchZhipuRateLimits).mockImplementation(async () => unavailableProvider('zhipu'))
 }
 
 /** Shared `beforeEach` body: healthy stubs for every provider the service polls. */
@@ -106,7 +109,10 @@ export function resetRateLimitProviderMocks(): void {
     error: null,
     status: 'unavailable'
   })
+  vi.mocked(fetchZhipuRateLimits).mockResolvedValue(unavailableProvider('zhipu'))
   vi.mocked(hasMiniMaxSessionCookie).mockReturnValue(false)
+  vi.mocked(hasZhipuCredentials).mockReturnValue(false)
+  vi.mocked(readZhipuCredentials).mockReturnValue(null)
   vi.mocked(readGrokAuthSession).mockReturnValue({ status: 'missing' })
 }
 

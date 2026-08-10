@@ -21,6 +21,7 @@ export type UsageProviderSettings = Pick<
   // store, neither of which the renderer can see; main reports presence.
   opencodeGoApiKeyConfigured: boolean
   grokAuthConfigured: boolean
+  zhipuCredentialsConfigured: boolean
 }
 
 type UsageProviderSnapshots = {
@@ -32,6 +33,7 @@ type UsageProviderSnapshots = {
   antigravity: ProviderRateLimits | null | undefined
   minimax: ProviderRateLimits | null | undefined
   grok: ProviderRateLimits | null | undefined
+  zhipu: ProviderRateLimits | null | undefined
 }
 
 type UsageProviderId = ProviderRateLimits['provider']
@@ -83,7 +85,8 @@ export function hasUsageProviderSettings(
     // already covered by the gemini term above.
     settings?.minimaxCookieConfigured === true ||
     settings?.minimaxApiKeyConfigured === true ||
-    settings?.grokAuthConfigured === true
+    settings?.grokAuthConfigured === true ||
+    settings?.zhipuCredentialsConfigured === true
   )
 }
 
@@ -120,6 +123,9 @@ export function hasUsageProviderSettingsForProvider(
   }
   if (providerId === 'grok') {
     return settings.grokAuthConfigured === true
+  }
+  if (providerId === 'zhipu') {
+    return settings.zhipuCredentialsConfigured === true
   }
   return false
 }
@@ -174,7 +180,8 @@ export function isUsageEmptyState(
     isProviderSnapshotPending(providers.kimi) ||
     antigravitySnapshotPending ||
     isProviderSnapshotPending(providers.minimax) ||
-    isProviderSnapshotPending(providers.grok)
+    isProviderSnapshotPending(providers.grok) ||
+    isProviderSnapshotPending(providers.zhipu)
   ) {
     return false
   }
@@ -187,6 +194,7 @@ export function isUsageEmptyState(
     !isProviderConfigured(providers.kimi) &&
     !isProviderConfigured(providers.antigravity) &&
     !isProviderConfigured(providers.minimax) &&
-    !isProviderConfigured(providers.grok)
+    !isProviderConfigured(providers.grok) &&
+    !isProviderConfigured(providers.zhipu)
   )
 }

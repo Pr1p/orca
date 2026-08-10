@@ -21,6 +21,7 @@ import {
   DEFAULT_POLL_MS
 } from './service-types'
 import { readGrokAuthSession } from '../grok-auth'
+import { hasZhipuCredentials } from '../../zhipu/zhipu-credential-store'
 
 export abstract class RateLimitServiceState {
   protected state: InternalRateLimitState = {
@@ -31,9 +32,11 @@ export abstract class RateLimitServiceState {
     kimi: null,
     antigravity: null,
     minimax: null,
-    grok: null
+    grok: null,
+    zhipu: null
   }
   protected grokAuthConfigured = readGrokAuthSession().status === 'ok'
+  protected zhipuCredentialsConfigured = hasZhipuCredentials()
   protected openCodeGoApiKeyConfigured = false
   protected pollInterval: number = DEFAULT_POLL_MS
   protected timer: ReturnType<typeof setInterval> | null = null
@@ -47,6 +50,7 @@ export abstract class RateLimitServiceState {
     kimi: 0,
     minimax: 0,
     grok: 0,
+    zhipu: 0,
     antigravity: 0
   }
   // Why: consecutive failures drive exponential backoff of the fast activation-retry lane; reset on any success/unavailable result.
@@ -58,6 +62,7 @@ export abstract class RateLimitServiceState {
     kimi: 0,
     minimax: 0,
     grok: 0,
+    zhipu: 0,
     antigravity: 0
   }
   protected mainWindow: BrowserWindow | null = null
@@ -75,8 +80,10 @@ export abstract class RateLimitServiceState {
   protected lastClaudeAuthSnapshot: { configDir: string | null; provenance: string } | null = null
   protected opencodeFetchGeneration = 0
   protected minimaxFetchGeneration = 0
+  protected zhipuFetchGeneration = 0
   protected lastOpencodeConfigHash = ''
   protected lastMiniMaxConfigHash = ''
+  protected lastZhipuConfigHash = ''
   protected codexHomePathResolver: CodexHomePathResolver | null = null
   protected codexFetchTarget: NormalizedCodexAccountSelectionTarget = {
     runtime: 'host',

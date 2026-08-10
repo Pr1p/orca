@@ -4,6 +4,7 @@ import { fetchGeminiRateLimits } from '../gemini-usage-fetcher'
 import { fetchGrokRateLimits } from '../grok-fetcher'
 import { readGrokAuthSession } from '../grok-auth'
 import { fetchMiniMaxRateLimits } from '../minimax/minimax-fetcher'
+import { fetchZhipuRateLimits } from '../zhipu-fetcher'
 import { createHash } from 'node:crypto'
 import { fetchOpenCodeGoUsage } from '../opencode-go-usage-source-selection'
 import { RateLimitServiceFetchPolicy } from './service-fetch-policy'
@@ -30,8 +31,11 @@ export type FetchAllCyclePrepared = {
   opencodeGeneration: number
   miniMaxConfigChanged: boolean
   miniMaxGeneration: number
+  zhipuConfigChanged: boolean
+  zhipuGeneration: number
   claudeFetchGated: boolean
   results: [
+    PromiseSettledResult<ProviderRateLimits>,
     PromiseSettledResult<ProviderRateLimits>,
     PromiseSettledResult<ProviderRateLimits>,
     PromiseSettledResult<ProviderRateLimits>,
@@ -84,6 +88,9 @@ export abstract class RateLimitServiceFullCyclePreparation extends RateLimitServ
     const miniMaxModels = miniMaxConfigResult.config.models
     const miniMaxEndpoint = miniMaxConfigResult.config.endpoint
     const miniMaxApiKey = miniMaxConfigResult.config.apiKey
+    const zhipuCredentialsResult = this.resolveZhipuCredentials()
+    const zhipuBaseUrl = zhipuCredentialsResult.credentials.baseUrl
+    const zhipuAuthToken = zhipuCredentialsResult.credentials.authToken
     const geminiCliOAuthEnabled = this.geminiCliOAuthEnabledResolver?.() ?? false
     // Why: getState() is hot (renderer pushes + mobile snapshots); keep Grok's sync auth-file probe on fetch cycles instead.
     const grokAuthReadResult = readGrokAuthSession()
@@ -110,6 +117,14 @@ export abstract class RateLimitServiceFullCyclePreparation extends RateLimitServ
     }
     const miniMaxGeneration = this.minimaxFetchGeneration
 
+    const currentZhipuConfigHash = `${zhipuBaseUrl}|${zhipuAuthToken}|${zhipuCredentialsResult.error ?? ''}`
+    const zhipuConfigChanged = currentZhipuConfigHash !== this.lastZhipuConfigHash
+    if (zhipuConfigChanged) {
+      this.lastZhipuConfigHash = currentZhipuConfigHash
+      this.zhipuFetchGeneration += 1
+    }
+    const zhipuGeneration = this.zhipuFetchGeneration
+
     // Mark all providers fetching while keeping previous data visible (Codex is cleared separately on account change).
     this.updateState({
       ...previousState,
@@ -127,7 +142,10 @@ export abstract class RateLimitServiceFullCyclePreparation extends RateLimitServ
       minimax: miniMaxConfigChanged
         ? this.withFetchingStatus(null, 'minimax')
         : this.withFetchingStatus(previousState.minimax, 'minimax'),
-      grok: this.withFetchingStatus(previousState.grok, 'grok')
+      grok: this.withFetchingStatus(previousState.grok, 'grok'),
+      zhipu: zhipuConfigChanged
+        ? this.withFetchingStatus(null, 'zhipu')
+        : this.withFetchingStatus(previousState.zhipu, 'zhipu')
     })
 
     const missingWslCodexHome =
@@ -144,7 +162,15 @@ export abstract class RateLimitServiceFullCyclePreparation extends RateLimitServ
     const claudeFetchGated =
       !options?.force && this.shouldSkipAutomatedClaudeFetch(previousState.claude)
 
-    const [claudeResult, codexResult, geminiResult, opencodeGoResult, kimiResult, miniMaxResult] =
+    const [
+      claudeResult,
+      codexResult,
+      geminiResult,
+      opencodeGoResult,
+      kimiResult,
+      miniMaxResult,
+      zhipuResult
+    ] =
       await Promise.allSettled([
         claudeFetchGated
           ? Promise.resolve(previousState.claude as ProviderRateLimits)
@@ -185,6 +211,13 @@ export abstract class RateLimitServiceFullCyclePreparation extends RateLimitServ
               models: miniMaxModels,
               endpointMode: miniMaxEndpoint,
               apiKey: miniMaxApiKey
+            }),
+        zhipuCredentialsResult.error
+          ? Promise.resolve(this.getZhipuCredentialError(zhipuCredentialsResult.error))
+          : fetchZhipuRateLimits({
+              baseUrl: zhipuBaseUrl,
+              authToken: zhipuAuthToken,
+              signal
             })
       ])
 
@@ -206,6 +239,8 @@ export abstract class RateLimitServiceFullCyclePreparation extends RateLimitServ
       opencodeGeneration,
       miniMaxConfigChanged,
       miniMaxGeneration,
+      zhipuConfigChanged,
+      zhipuGeneration,
       claudeFetchGated,
       results: [
         claudeResult,
@@ -213,7 +248,8 @@ export abstract class RateLimitServiceFullCyclePreparation extends RateLimitServ
         geminiResult,
         opencodeGoResult,
         kimiResult,
-        miniMaxResult
+        miniMaxResult,
+        zhipuResult
       ],
       grokResultPromise
     }
