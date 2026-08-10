@@ -1,5 +1,6 @@
 import { joinPath } from '@/lib/path'
 import type { OpenFile } from '@/store/slices/editor'
+import { normalizeRuntimePathForComparison } from '../../../../shared/cross-platform-path'
 import {
   DEFAULT_EDITOR_AUTO_SAVE_DELAY_MS,
   MAX_EDITOR_AUTO_SAVE_DELAY_MS,
@@ -134,7 +135,9 @@ export function getOpenFilesForExternalFileChange(
       return false
     }
     if (file.mode === 'edit' || file.mode === 'markdown-preview') {
-      return file.filePath === absolutePath
+      // Why: WSL UNC paths from terminal links (//wsl.localhost/...) and file
+      // watchers (\\wsl.localhost\...) must fold to the same form before comparing.
+      return normalizeRuntimePathForComparison(file.filePath) === normalizeRuntimePathForComparison(absolutePath)
     }
     if (file.mode === 'diff') {
       return (
