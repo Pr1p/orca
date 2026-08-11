@@ -122,6 +122,7 @@ export function getOpenFilesForExternalFileChange(
   target: EditorPathMutationTarget
 ): OpenFile[] {
   const absolutePath = joinPath(target.worktreePath, target.relativePath)
+  const absolutePathKey = normalizeRuntimePathForComparison(absolutePath)
   const hasRuntimeOwnerFilter = Object.prototype.hasOwnProperty.call(target, 'runtimeEnvironmentId')
   const targetRuntimeOwner = target.runtimeEnvironmentId?.trim() || null
   return openFiles.filter((file) => {
@@ -135,9 +136,7 @@ export function getOpenFilesForExternalFileChange(
       return false
     }
     if (file.mode === 'edit' || file.mode === 'markdown-preview') {
-      // Why: WSL UNC paths from terminal links (//wsl.localhost/...) and file
-      // watchers (\\wsl.localhost\...) must fold to the same form before comparing.
-      return normalizeRuntimePathForComparison(file.filePath) === normalizeRuntimePathForComparison(absolutePath)
+      return normalizeRuntimePathForComparison(file.filePath) === absolutePathKey
     }
     if (file.mode === 'diff') {
       return (
