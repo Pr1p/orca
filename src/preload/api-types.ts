@@ -11,6 +11,7 @@ import type { AgentAwakeApi, AgentStatusApi, AgentTrustApi } from './api/agent-s
 import type {
   ClaudeUsageApi,
   CodexUsageApi,
+  KimiUsageApi,
   MuseUsageApi,
   OpenCodeUsageApi,
   RateLimitsApi
@@ -133,6 +134,7 @@ export type PreloadApi = {
   codexUsage: CodexUsageApi
   openCodeUsage: OpenCodeUsageApi
   museUsage: MuseUsageApi
+  kimiUsage: KimiUsageApi
   aiVault: AiVaultApi
   nativeChat: NativeChatApi
   fs: FilesystemApi['fs']
@@ -157,6 +159,7 @@ export type PreloadApi = {
 export type {
   ClaudeUsageApi,
   CodexUsageApi,
+  KimiUsageApi,
   MuseUsageApi,
   OpenCodeUsageApi
 } from './api/agent-usage-api'
