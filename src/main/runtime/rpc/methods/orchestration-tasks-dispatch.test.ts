@@ -52,6 +52,18 @@ describe('orchestration RPC methods', () => {
       expect(result.task.status).toBe('pending')
     })
 
+    it('creates a task with PowerShell-stripped JSON string deps', async () => {
+      setup()
+      const t1 = db.createTask({ spec: 'first' })
+
+      const result = (await call('orchestration.taskCreate', {
+        spec: 'second',
+        deps: `[${t1.id}]`
+      })) as { task: { status: string } }
+
+      expect(result.task.status).toBe('pending')
+    })
+
     it('records the caller pane, process, and Run generation when creating a task', async () => {
       setup()
       vi.spyOn(runtime, 'getTerminalPaneKey').mockImplementation((handle) =>

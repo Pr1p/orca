@@ -220,6 +220,37 @@ const TaskCreateParams = z.object({
   run: OptionalString
 })
 
+const GENERATED_TASK_ID_PATTERN = /^task_[0-9a-f]{12}$/i
+
+function parseTaskCreateDeps(rawDeps: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(rawDeps)
+    if (!Array.isArray(parsed) || !parsed.every((d) => typeof d === 'string')) {
+      throw new Error('not an array of strings')
+    }
+    return parsed
+  } catch {
+    const argvStripped = parseArgvStrippedTaskDeps(rawDeps)
+    if (argvStripped) {
+      return argvStripped
+    }
+    throw new Error('Invalid --deps: must be a JSON array of task IDs')
+  }
+}
+
+function parseArgvStrippedTaskDeps(rawDeps: string): string[] | null {
+  const trimmed = rawDeps.trim()
+  if (!trimmed.startsWith('[') || !trimmed.endsWith(']')) {
+    return null
+  }
+  const body = trimmed.slice(1, -1).trim()
+  if (body.length === 0) {
+    return []
+  }
+  const deps = body.split(',').map((entry) => entry.trim())
+  return deps.every((dep) => GENERATED_TASK_ID_PATTERN.test(dep)) ? deps : null
+}
+
 const TaskListParams = z.object({
   status: z.enum(['pending', 'ready', 'dispatched', 'completed', 'failed', 'blocked']).optional(),
   ready: OptionalBoolean,
@@ -1480,15 +1511,7 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
       const db = runtime.getOrchestrationDb()
       let deps: string[] | undefined
       if (params.deps) {
-        try {
-          const parsed = JSON.parse(params.deps)
-          if (!Array.isArray(parsed) || !parsed.every((d) => typeof d === 'string')) {
-            throw new Error('not an array of strings')
-          }
-          deps = parsed
-        } catch {
-          throw new Error('Invalid --deps: must be a JSON array of task IDs')
-        }
+        deps = parseTaskCreateDeps(params.deps)
       }
       const run = resolveRunScope(runtime, {
         runId: params.run,
