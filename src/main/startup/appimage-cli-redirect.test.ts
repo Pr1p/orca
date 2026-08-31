@@ -130,6 +130,20 @@ describe('AppImage CLI redirect', () => {
     ).toEqual(['serve', '--not-a-serve-flag'])
   })
 
+  it('keeps malformed boolean desktop flags visible to the CLI parser', () => {
+    expect(
+      getAppImageCliArgs(
+        ['AppRun', 'serve', '--no-sandbox=true'],
+        { APPIMAGE: '/opt/orca' },
+        {
+          platform: 'linux',
+          isPackaged: true,
+          commandNames
+        }
+      )
+    ).toEqual(['serve', '--no-sandbox=true'])
+  })
+
   it('removes no-sandbox before forwarding CLI help', () => {
     expect(
       getAppImageCliArgs(
