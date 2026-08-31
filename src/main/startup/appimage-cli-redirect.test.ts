@@ -116,6 +116,20 @@ describe('AppImage CLI redirect', () => {
     ).toEqual(['serve', '--disable-features=FedCm'])
   })
 
+  it('keeps unknown CLI flags visible to the CLI parser', () => {
+    expect(
+      getAppImageCliArgs(
+        ['AppRun', 'serve', '--not-a-serve-flag'],
+        { APPIMAGE: '/opt/orca' },
+        {
+          platform: 'linux',
+          isPackaged: true,
+          commandNames
+        }
+      )
+    ).toEqual(['serve', '--not-a-serve-flag'])
+  })
+
   it('removes no-sandbox before forwarding CLI help', () => {
     expect(
       getAppImageCliArgs(
