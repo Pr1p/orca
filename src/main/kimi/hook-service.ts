@@ -146,10 +146,10 @@ function writeConfigToml(configPath: string, text: string): void {
       if (readFileSync(configPath, 'utf-8') === text) {
         return
       }
-      mode = statSync(configPath).mode & 0o777
     } catch {
       // Fall through to the atomic write path.
     }
+    mode = statSync(configPath).mode & 0o777
   }
   const tmpPath = join(dir, `.${Date.now()}-${randomUUID()}.tmp`)
   try {
