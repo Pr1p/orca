@@ -74,6 +74,41 @@ describe('HermesHookService', () => {
     expect(config.plugins.disabled).toEqual([])
   })
 
+  it('preserves user YAML comments and multiline formatting while toggling the plugin', () => {
+    writeFileSync(
+      join(homeDir, 'config.yaml'),
+      [
+        '# Keep this user documentation.',
+        'model: test-model # Keep this inline explanation.',
+        '',
+        'plugins:',
+        '  # Keep this plugin-list explanation.',
+        '  enabled:',
+        '    - disk-cleanup # Keep this entry explanation.',
+        '  disabled: []',
+        '',
+        'system_prompt: |',
+        '  Keep this multiline user configuration.',
+        '  It is unrelated to Orca.',
+        ''
+      ].join('\n'),
+      'utf-8'
+    )
+
+    const service = new HermesHookService()
+    service.install()
+    service.remove()
+
+    const config = readFileSync(join(homeDir, 'config.yaml'), 'utf-8')
+    expect(config).toContain('# Keep this user documentation.')
+    expect(config).toContain('model: test-model # Keep this inline explanation.')
+    expect(config).toContain('# Keep this plugin-list explanation.')
+    expect(config).toContain('- disk-cleanup # Keep this entry explanation.')
+    expect(config).toContain('system_prompt: |')
+    expect(config).toContain('  Keep this multiline user configuration.')
+    expect(config).not.toContain(_internals.HERMES_PLUGIN_NAME)
+  })
+
   it('normalizes malformed plugin lists during install', () => {
     writeFileSync(
       join(homeDir, 'config.yaml'),
