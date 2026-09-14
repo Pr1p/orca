@@ -130,8 +130,13 @@ describe('KimiHookService', () => {
   )
 
   it.skipIf(!supportsPosixFileModes)('creates a new config with an owner-only mode', () => {
-    new KimiHookService().install()
+    const originalUmask = process.umask(0o022)
+    try {
+      new KimiHookService().install()
 
-    expect(statSync(configPath()).mode & 0o777).toBe(0o600)
+      expect(statSync(configPath()).mode & 0o777).toBe(0o600)
+    } finally {
+      process.umask(originalUmask)
+    }
   })
 })
