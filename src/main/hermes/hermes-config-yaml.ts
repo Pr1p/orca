@@ -244,16 +244,17 @@ export function getConfigEnablement(config: HermesConfig): {
     return { enabled: false, disabled: false, detail: 'plugins.enabled is missing' }
   }
   const enabled = asStringArray(config.plugins.enabled)
-  const disabled = asStringArray(config.plugins.disabled) ?? []
+  const disabled = asStringArray(config.plugins.disabled)
   if (enabled === null || enabled === undefined) {
     return { enabled: false, disabled: false, detail: 'plugins.enabled is not a string list' }
   }
   if (disabled === null) {
     return { enabled: false, disabled: false, detail: 'plugins.disabled is not a string list' }
   }
+  const disabledList = disabled ?? []
   return {
     enabled: enabled.includes(HERMES_PLUGIN_NAME),
-    disabled: disabled.includes(HERMES_PLUGIN_NAME),
+    disabled: disabledList.includes(HERMES_PLUGIN_NAME),
     detail: null
   }
 }

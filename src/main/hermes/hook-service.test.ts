@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import { execFile, execFileSync, spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -174,6 +174,28 @@ describe('HermesHookService', () => {
     expect(status.state).toBe('installed')
     expect(config).toContain(`unrelated: ${longValue}`)
     expect(config).not.toMatch(/^  disabled:/m)
+  })
+
+  it('reports malformed disabled lists without treating them as empty', () => {
+    writeFileSync(
+      join(homeDir, 'config.yaml'),
+      [
+        'plugins:',
+        `  enabled: [${_internals.HERMES_PLUGIN_NAME}]`,
+        '  disabled: not-a-list',
+        ''
+      ].join('\n'),
+      'utf-8'
+    )
+    const pluginDir = join(homeDir, 'plugins', _internals.HERMES_PLUGIN_NAME)
+    mkdirSync(pluginDir, { recursive: true })
+    writeFileSync(join(pluginDir, 'plugin.yaml'), _internals.getPluginManifest(), 'utf-8')
+    writeFileSync(join(pluginDir, '__init__.py'), _internals.getPluginInitSource(), 'utf-8')
+
+    const status = new HermesHookService().getStatus()
+
+    expect(status.state).toBe('partial')
+    expect(status.detail).toContain('plugins.disabled is not a string list')
   })
 
   it('normalizes malformed plugin lists during install', () => {
