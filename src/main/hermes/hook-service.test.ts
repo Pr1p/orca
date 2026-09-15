@@ -96,8 +96,16 @@ describe('HermesHookService', () => {
     )
 
     const service = new HermesHookService()
-    service.install()
-    service.remove()
+    const installed = service.install()
+    expect(installed.state).toBe('installed')
+
+    const installedConfig = parse(readFileSync(join(homeDir, 'config.yaml'), 'utf-8')) as {
+      plugins: { enabled: string[] }
+    }
+    expect(installedConfig.plugins.enabled).toContain(_internals.HERMES_PLUGIN_NAME)
+
+    const removed = service.remove()
+    expect(removed.state).toBe('not_installed')
 
     const config = readFileSync(join(homeDir, 'config.yaml'), 'utf-8')
     expect(config).toContain('# Keep this user documentation.')
@@ -107,6 +115,65 @@ describe('HermesHookService', () => {
     expect(config).toContain('system_prompt: |')
     expect(config).toContain('  Keep this multiline user configuration.')
     expect(config).not.toContain(_internals.HERMES_PLUGIN_NAME)
+  })
+
+  it('updates a null config root safely', () => {
+    writeFileSync(join(homeDir, 'config.yaml'), ['null', ''].join('\n'), 'utf-8')
+
+    const service = new HermesHookService()
+    const status = service.install()
+
+    expect(status).toMatchObject({ state: 'installed', detail: null })
+    const config = parse(readFileSync(join(homeDir, 'config.yaml'), 'utf-8')) as {
+      plugins: { enabled: string[] }
+    }
+    expect(config.plugins.enabled).toEqual([_internals.HERMES_PLUGIN_NAME])
+  })
+
+  it('does not mutate YAML aliases when updating plugin lists', () => {
+    writeFileSync(
+      join(homeDir, 'config.yaml'),
+      [
+        'plugins: &plugin-config',
+        '  enabled: &enabled-plugins',
+        '    - disk-cleanup',
+        'plugin-config-copy: *plugin-config',
+        'enabled-copy: *enabled-plugins',
+        ''
+      ].join('\n'),
+      'utf-8'
+    )
+
+    const status = new HermesHookService().install()
+
+    expect(status).toMatchObject({ state: 'installed', detail: null })
+    const config = parse(readFileSync(join(homeDir, 'config.yaml'), 'utf-8')) as {
+      plugins: { enabled: string[] }
+      'plugin-config-copy': { enabled: string[] }
+      'enabled-copy': string[]
+    }
+    expect(config.plugins.enabled).toEqual(['disk-cleanup', _internals.HERMES_PLUGIN_NAME])
+    expect(config['plugin-config-copy'].enabled).toEqual(['disk-cleanup'])
+    expect(config['enabled-copy']).toEqual(['disk-cleanup'])
+  })
+
+  it('does not add absent plugin list keys or wrap unrelated long scalars', () => {
+    const longValue = 'x'.repeat(120)
+    const original = [
+      'plugins:',
+      '  enabled:',
+      '    - disk-cleanup',
+      `unrelated: ${longValue}`,
+      ''
+    ].join('\n')
+    writeFileSync(join(homeDir, 'config.yaml'), original, 'utf-8')
+
+    const status = new HermesHookService().install()
+    const config = readFileSync(join(homeDir, 'config.yaml'), 'utf-8')
+
+    expect(status.state).toBe('installed')
+    expect(config).toContain(`unrelated: ${longValue}`)
+    expect(config).not.toMatch(/^  disabled:/m)
   })
 
   it('normalizes malformed plugin lists during install', () => {
