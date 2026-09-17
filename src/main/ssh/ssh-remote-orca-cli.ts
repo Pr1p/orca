@@ -282,7 +282,10 @@ async function dispatchRemoteCli(
         'orchestration.inbox',
         {
           limit: optionalRemoteCliNumber(parsed.flags, 'limit'),
-          terminal: optionalRemoteCliString(parsed.flags, 'terminal')
+          terminal: parsed.flags.has('run')
+            ? resolveRemoteCliHandle(parsed.flags, env, 'terminal')
+            : optionalRemoteCliString(parsed.flags, 'terminal'),
+          run: optionalRemoteCliString(parsed.flags, 'run')
         },
         compatibilityEnvelope
       )
