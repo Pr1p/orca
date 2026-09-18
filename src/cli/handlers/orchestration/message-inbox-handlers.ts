@@ -11,6 +11,7 @@ import {
 } from '../../../shared/orchestration-check-output'
 import { callOrchestrationMutation } from './mutation-request'
 import { resolveOrchestrationTerminalHandle } from './terminal-identity'
+import { RuntimeClientError } from '../../runtime-client'
 
 type InboxResult = {
   messages: MessageSummary[]
@@ -50,6 +51,12 @@ export const ORCHESTRATION_INBOX_HANDLERS: Record<string, CommandHandler> = {
         run && !explicitTerminal ? process.env.ORCA_PANE_KEY || undefined : undefined,
       run
     })
+    if (run && result.result.scope !== `messages addressed to Run ${run}`) {
+      throw new RuntimeClientError(
+        'incompatible_runtime',
+        'The running Orca runtime does not support Run-scoped inbox reads. Update or restart Orca and try again.'
+      )
+    }
     printResult(result, json, (value) => {
       if (value.count === 0) {
         if (value.scope) {

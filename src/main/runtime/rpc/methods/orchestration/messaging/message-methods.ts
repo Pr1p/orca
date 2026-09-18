@@ -140,10 +140,11 @@ export const ORCHESTRATION_MESSAGE_METHODS = [
             'Run-scoped inbox reads require a terminal. Run this command inside a live Orca terminal or pass --terminal <handle>.'
           )
         }
+        const callerPaneKey = runtime.getTerminalPaneKey(params.terminal) ?? params.terminalPaneKey
         const run = resolveRunScope(runtime, {
           runId: params.run,
           callerTerminalHandle: params.terminal,
-          callerPaneKey: params.terminalPaneKey,
+          callerPaneKey,
           requireCurrentConsumer: true,
           legacyCoordinatorRunId,
           callerEvidence: orchestrationCompatibilityEvidence

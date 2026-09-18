@@ -878,7 +878,7 @@ describe('orchestration RPC methods', () => {
       })
     })
 
-    it('rejects a Run-scoped read from a terminal bound to a different Run', async () => {
+    it('rejects a Run-scoped read when a live terminal binding disagrees with a supplied pane', async () => {
       setup(false)
       const paneA = 'tab_a:11111111-1111-4111-8111-111111111111'
       const paneB = 'tab_b:22222222-2222-4222-9222-222222222222'
@@ -897,7 +897,11 @@ describe('orchestration RPC methods', () => {
       })
 
       await expect(
-        call('orchestration.inbox', { terminal: 'term_a', run: runB.id })
+        call('orchestration.inbox', {
+          terminal: 'term_a',
+          terminalPaneKey: paneB,
+          run: runB.id
+        })
       ).rejects.toMatchObject({
         code: 'consumer_fenced',
         message: `This coordinator terminal is bound to ${runA.id}, not ${runB.id}.`
