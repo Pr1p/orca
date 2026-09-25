@@ -39,10 +39,7 @@ function mergeSessionTotals(target: KimiUsageSession, source: KimiUsageSession):
   target.totalTokens += source.totalTokens
 }
 
-function mergeSessionLocationBreakdown(
-  target: KimiUsageSession,
-  source: KimiUsageSession
-): void {
+function mergeSessionLocationBreakdown(target: KimiUsageSession, source: KimiUsageSession): void {
   for (const location of source.locationBreakdown) {
     const existing =
       target.locationBreakdown.find((entry) => entry.locationKey === location.locationKey) ?? null
@@ -61,7 +58,8 @@ function mergeSessionLocationBreakdown(
 
 function mergeSessionModelBreakdown(target: KimiUsageSession, source: KimiUsageSession): void {
   for (const model of source.modelBreakdown) {
-    const existing = target.modelBreakdown.find((entry) => entry.modelKey === model.modelKey) ?? null
+    const existing =
+      target.modelBreakdown.find((entry) => entry.modelKey === model.modelKey) ?? null
     if (existing) {
       existing.eventCount += model.eventCount
       existing.inputTokens += model.inputTokens
