@@ -107,7 +107,9 @@ export class HermesHookService {
       }
     }
     writePluginFiles()
-    writeConfigFile(configPath, next.content)
+    if (next.content !== parsed.content) {
+      writeConfigFile(configPath, next.content)
+    }
     return this.getStatus()
   }
 
@@ -170,11 +172,13 @@ export class HermesHookService {
         detail: `Could not update Hermes config.yaml: ${next.detail ?? 'unknown error'}`
       }
     }
+    if (next.content !== parsed.content) {
+      writeConfigFile(configPath, next.content)
+    }
     const pluginDir = getPluginDir()
     if (getPluginFilesState(pluginDir).managed) {
       rmSync(pluginDir, { recursive: true, force: true })
     }
-    writeConfigFile(configPath, next.content)
     return this.getStatus()
   }
 }

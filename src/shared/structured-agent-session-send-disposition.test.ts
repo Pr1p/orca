@@ -8,11 +8,13 @@ import type { AgentJournalSubmission } from './agent-session-journal-types'
 import type { AgentSessionMutationResult, AgentSessionSendResult } from './agent-session-wire'
 import {
   dispatchWriteFailureReason,
+  DISPATCH_REJECTED_CANCELLED,
   DISPATCH_REJECTED_QUEUE_FULL
 } from './structured-agent-session-dispatch-rejection'
 import { disposeStructuredAgentSessionSendResult } from './structured-agent-session-send-disposition'
 import {
   createStructuredAgentSessionOutboxEntry,
+  reconcileStructuredAgentSessionOutbox,
   type StructuredAgentSessionOutboxEntry
 } from './structured-agent-session-outbox'
 
@@ -55,6 +57,15 @@ function notice(reason: string | null): string | null {
 }
 
 describe('what a rejection shows the user', () => {
+  it('removes a queued message the provider confirms Stop cancelled', () => {
+    const result = rejectedWith(DISPATCH_REJECTED_CANCELLED)
+    if (!result.ok) {
+      throw new Error('expected rejected submission fixture')
+    }
+
+    expect(reconcileStructuredAgentSessionOutbox([entry], [result.value.submission])).toEqual([])
+  })
+
   it('never puts the transport marker on screen', () => {
     const shown = notice(dispatchWriteFailureReason(new Error('broken pipe')))
     // `provider_write_failed: broken pipe` names nothing a person can act on.
@@ -71,6 +82,13 @@ describe('what a rejection shows the user', () => {
     expect(notice('Claude messages support at most 20 images')).toBe(
       'Claude messages support at most 20 images'
     )
+  })
+
+  it('names the cause of a start that died before it could take the message', () => {
+    // The host words this reason for the user: the child's own diagnostic, nothing internal.
+    const reason =
+      'The provider stopped before it finished starting: claude stream-json exited (code 1): claude: not signed in.'
+    expect(notice(reason)).toBe(reason)
   })
 
   it('claims no cause when the rejection names none', () => {
