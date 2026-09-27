@@ -86,6 +86,7 @@ describe('runRemoteOrcaCli', () => {
       getActiveDispatchForIdentity: vi.fn(() => undefined),
       getActiveDispatchMailboxOwners: vi.fn(() => []),
       getCurrentRunForPane: vi.fn<(paneKey: string) => TestRun | undefined>(() => undefined),
+      getCurrentRunForCoordinator: vi.fn<(caller: unknown) => TestRun | undefined>(() => undefined),
       getRun: vi.fn<(runId: string) => TestRun | undefined>(() => undefined),
       getRunMailboxHistory: vi.fn<(runId: string, limit?: number) => unknown[]>(() => []),
       getRunMailboxOwnerIdsForHandle: vi.fn(() => []),
@@ -185,6 +186,36 @@ describe('runRemoteOrcaCli', () => {
       })
     }
   )
+
+  // Why: `orca terminal create --shell` gates on these; without them an SSH pane was told the
+  // host was too old, when the accurate refusal is that SSH cannot apply the shell.
+  it('reports the execution host capabilities through the legacy status fallback', async () => {
+    const runtime = new OrcaRuntimeService()
+    vi.spyOn(runtime, 'getStatus').mockReturnValue({
+      runtimeId: 'runtime-test',
+      rendererGraphEpoch: 1,
+      graphStatus: 'ready',
+      authoritativeWindowId: 1,
+      liveTabCount: 0,
+      liveLeafCount: 0,
+      capabilities: ['terminal.create-shell-selection.v1']
+    })
+
+    const result = await runRemoteOrcaCli(
+      runtime,
+      { argv: ['status', '--json'], cwd: '/home/alice/repo', env: {} },
+      LEGACY_FALLBACK_OPTIONS
+    )
+
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: true,
+      result: {
+        target: { kind: 'environment', environment: 'ssh' },
+        runtime: { reachable: true, capabilities: ['terminal.create-shell-selection.v1'] }
+      }
+    })
+  })
 
   it('uses the remote ORCA_TERMINAL_HANDLE as orchestration sender identity', async () => {
     const { runtime, db } = createRuntime()
@@ -560,7 +591,9 @@ describe('runRemoteOrcaCli', () => {
     )
 
     expect(result.exitCode).toBe(0)
-    expect(db.getCurrentRunForPane).toHaveBeenCalledWith('tab_ssh:leaf_ssh')
+    expect(db.getCurrentRunForCoordinator).toHaveBeenCalledWith(
+      expect.objectContaining({ paneKey: 'tab_ssh:leaf_ssh' })
+    )
     expect(db.getActiveDispatchForIdentity).toHaveBeenCalledWith(
       'term_stale_ssh',
       'tab_ssh:leaf_ssh'
@@ -571,7 +604,7 @@ describe('runRemoteOrcaCli', () => {
     const { runtime, db } = createRuntime()
     const run = { id: 'run_ssh', legacy: 0 }
     db.getRun.mockReturnValue(run)
-    db.getCurrentRunForPane.mockReturnValue(run)
+    db.getCurrentRunForCoordinator.mockReturnValue(run)
 
     const result = await runRemoteOrcaCli(
       runtime,
@@ -587,7 +620,9 @@ describe('runRemoteOrcaCli', () => {
     )
 
     expect(result.exitCode).toBe(0)
-    expect(db.getCurrentRunForPane).toHaveBeenCalledWith('tab_ssh:leaf_ssh')
+    expect(db.getCurrentRunForCoordinator).toHaveBeenCalledWith(
+      expect.objectContaining({ paneKey: 'tab_ssh:leaf_ssh' })
+    )
     expect(db.getRunMailboxHistory).toHaveBeenCalledWith(run.id, undefined)
   })
 
@@ -608,7 +643,7 @@ describe('runRemoteOrcaCli', () => {
     )
 
     expect(result.exitCode).toBe(0)
-    expect(db.getCurrentRunForPane).not.toHaveBeenCalled()
+    expect(db.getCurrentRunForCoordinator).not.toHaveBeenCalled()
     expect(db.getActiveDispatchForIdentity).toHaveBeenCalledWith('term_legacy_worker', undefined)
   })
 
