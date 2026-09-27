@@ -1,3 +1,4 @@
+import { withDurableRuntimeStore } from '../runtime-durable-store-fixture'
 import { describe, expect, it, vi } from 'vitest'
 import {
   OrcaRuntimeService,
@@ -20,7 +21,9 @@ describe('OrcaRuntimeService', () => {
       ...getDefaultWorkspaceSession(),
       tabsByWorktree: { [TEST_WORKTREE_ID]: [] }
     })
-    const runtime = new OrcaRuntimeService({ ...runtimeStore, flushOrThrow: vi.fn() } as never)
+    const runtime = new OrcaRuntimeService(
+      withDurableRuntimeStore({ ...runtimeStore, flushOrThrow: vi.fn() })
+    )
     let process = {
       id: 'reused-pty-id',
       incarnationId: 'inc-old',
@@ -66,7 +69,9 @@ describe('OrcaRuntimeService', () => {
       ...getDefaultWorkspaceSession(),
       tabsByWorktree: { [TEST_WORKTREE_ID]: [] }
     })
-    const runtime = new OrcaRuntimeService({ ...runtimeStore, flushOrThrow: vi.fn() } as never)
+    const runtime = new OrcaRuntimeService(
+      withDurableRuntimeStore({ ...runtimeStore, flushOrThrow: vi.fn() })
+    )
     runtime.syncWindowGraph(1, {
       tabs: [
         {
@@ -156,7 +161,9 @@ describe('OrcaRuntimeService', () => {
         [`duplicate-b:${HEADLESS_SECOND_LEAF_ID}`]: 'inc-duplicate'
       }
     })
-    const runtime = new OrcaRuntimeService({ ...runtimeStore, flushOrThrow: vi.fn() } as never)
+    const runtime = new OrcaRuntimeService(
+      withDurableRuntimeStore({ ...runtimeStore, flushOrThrow: vi.fn() })
+    )
     runtime.setPtyController({
       write: () => true,
       kill: () => true,
@@ -363,6 +370,16 @@ describe('OrcaRuntimeService', () => {
     runtime.markGraphUnavailable(1)
 
     expect(runtime.getTerminalProcessIncarnation(handle)).toBe(incarnation)
+  })
+
+  it('keeps prompt bindings fenced across runtime restarts without provider incarnation', () => {
+    const runtime = new OrcaRuntimeService(store)
+    const handle = runtime.preAllocateHandleForPty('pty-1')
+    syncSinglePty(runtime)
+
+    const binding = runtime.getTerminalPromptRequestBinding(handle)
+
+    expect(binding.processIncarnation).toBe(`${runtime.getRuntimeId()}:pty-1:${binding.generation}`)
   })
 
   it('preserves PTY process identity while a renderer surface detaches and reattaches', async () => {

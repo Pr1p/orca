@@ -14,8 +14,20 @@ const TERMINAL_PANE_HOOK_SOURCE_PATTERN =
 // Restoring the terminal/chat switcher added four `useCallback`s -- three in
 // chat-state (can-toggle, toggle-for-leaf, toggle-active) and the context-menu
 // toggle in projection (208 hooks, still 8 useMemo).
+// Then chat-state's orchestration dispatch-status subscription went with the
+// paused notice that read it (207 hooks, still 8 useMemo).
+// Then host-authoritative layout removal added two `useRef`s in reconciliation
+// (last host layout leaf set, retired leaf set) (209 hooks, still 8 useMemo).
+// Then search match count + Cmd+F focus parity (#9035) added a `useRef` and a `useCallback` in
+// foundation (search input ref, focus-search-input) (211 hooks, still 8 useMemo).
+// Then the pending split-close admission added one `useRef` in close-actions
+// (the confirmed-close continuation) (212 hooks, still 8 useMemo).
+// Then the dead adopted-structured-session portal went with its local target `useMemo`
+// in projection (211 hooks, 7 useMemo).
+// Then chat ownership through toggles and restore (#23049) added a `useRef`, a `useLayoutEffect`
+// and a `useEffect` across chat-state, layout-persistence and title-effects (214 hooks, still 7 useMemo).
 const PRE_REFACTOR_HOOK_ORDER_SHA256 =
-  '983ad067c9feca82c5435eb1b865674344489c368ec2007dc7bb40c81aef037c'
+  '3736b71c612bb28b9b5298c7704ee1b32c7afc0254e75d0072ff4df870ec3be9'
 
 const sourceFiles = readdirSync(__dirname)
   .filter((name) => TERMINAL_PANE_HOOK_SOURCE_PATTERN.test(name))
@@ -80,8 +92,8 @@ function readFlattenedHookOrder(): string[] {
 describe('TerminalPane refactor hook parity', () => {
   it('preserves the recursively flattened render hook order', () => {
     const hooks = readFlattenedHookOrder()
-    expect(hooks).toHaveLength(208)
-    expect(hooks.filter((hook) => hook === 'useMemo')).toHaveLength(8)
+    expect(hooks).toHaveLength(214)
+    expect(hooks.filter((hook) => hook === 'useMemo')).toHaveLength(7)
     expect(createHash('sha256').update(hooks.join('\n')).digest('hex')).toBe(
       PRE_REFACTOR_HOOK_ORDER_SHA256
     )

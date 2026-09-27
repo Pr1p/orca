@@ -139,7 +139,8 @@ describe('createUISlice hydratePersistedUI', () => {
       'kimi',
       'minimax',
       'antigravity',
-      'grok'
+      'grok',
+      'cursor'
     ])
     expect(setUI).toHaveBeenCalledWith({
       statusBarItems: [
@@ -149,13 +150,15 @@ describe('createUISlice hydratePersistedUI', () => {
         'kimi',
         'minimax',
         'antigravity',
-        'grok'
+        'grok',
+        'cursor'
       ],
       _portsStatusBarDefaultAdded: true,
       _kimiStatusBarDefaultAdded: true,
       _minimaxStatusBarDefaultAdded: true,
       _antigravityStatusBarDefaultAdded: true,
-      _grokStatusBarDefaultAdded: true
+      _grokStatusBarDefaultAdded: true,
+      _cursorStatusBarDefaultAdded: true
     })
   })
 
@@ -171,7 +174,8 @@ describe('createUISlice hydratePersistedUI', () => {
         _kimiStatusBarDefaultAdded: true,
         _minimaxStatusBarDefaultAdded: true,
         _antigravityStatusBarDefaultAdded: true,
-        _grokStatusBarDefaultAdded: true
+        _grokStatusBarDefaultAdded: true,
+        _cursorStatusBarDefaultAdded: true
       })
     )
 
@@ -551,8 +555,17 @@ describe('createUISlice hydratePersistedUI', () => {
     expect(store.getState().agentsFilterRepoIds).toEqual([])
     expect(store.getState().agentsShowChildAgents).toBe(false)
     expect(store.getState().agentsCompactMode).toBe(true)
+    expect(store.getState().agentsShowSearch).toBe(true)
     expect(store.getState().agentsReadFilter).toBe('all')
     expect(store.getState().agentsGroupBy).toBe('status')
+  })
+
+  it('restores a hidden agents search field', () => {
+    const store = createUIStore()
+
+    store.getState().hydratePersistedUI(makePersistedUI({ agentsShowSearch: false }))
+
+    expect(store.getState().agentsShowSearch).toBe(false)
   })
 
   it('restores the persisted agents read filter and grouping, rejecting unknown values', () => {
