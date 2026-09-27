@@ -2,6 +2,7 @@ import type {
   ClaudeAccountsApi,
   CodexAccountsApi,
   CodexConfigSyncApi,
+  CursorAccountsApi,
   GrokAccountsApi,
   MinimaxCredentialsApi,
   ZhipuCredentialsApi
@@ -145,6 +146,7 @@ export type PreloadApi = {
   minimaxCredentials: MinimaxCredentialsApi
   zhipuCredentials: ZhipuCredentialsApi
   grokAccounts: GrokAccountsApi
+  cursorAccounts: CursorAccountsApi
   ssh: SshApi
   automations: AutomationsApi
   wsl: RuntimeApi['wsl']

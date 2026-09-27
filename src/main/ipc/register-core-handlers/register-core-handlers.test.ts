@@ -39,6 +39,7 @@ const {
   registerMiniMaxCredentialsHandlersMock,
   registerGrokAccountHandlersMock,
   registerZhipuCredentialsHandlersMock,
+  registerCursorAccountHandlersMock,
   registerClipboardHandlersMock,
   setTrustedClipboardRendererWebContentsIdMock,
   registerUpdaterHandlersMock,
@@ -107,6 +108,7 @@ const {
   registerMiniMaxCredentialsHandlersMock: vi.fn(),
   registerGrokAccountHandlersMock: vi.fn(),
   registerZhipuCredentialsHandlersMock: vi.fn(),
+  registerCursorAccountHandlersMock: vi.fn(),
   registerClipboardHandlersMock: vi.fn(),
   setTrustedClipboardRendererWebContentsIdMock: vi.fn(),
   registerUpdaterHandlersMock: vi.fn(),
@@ -350,6 +352,10 @@ vi.mock('../zhipu-credentials', () => ({
   registerZhipuCredentialsHandlers: registerZhipuCredentialsHandlersMock
 }))
 
+vi.mock('../cursor-accounts', () => ({
+  registerCursorAccountHandlers: registerCursorAccountHandlersMock
+}))
+
 vi.mock('../../window/attach-main-window-services', () => ({
   registerUpdaterHandlers: registerUpdaterHandlersMock
 }))
@@ -536,6 +542,7 @@ describe('registerCoreHandlers', () => {
     expect(registerMiniMaxCredentialsHandlersMock).toHaveBeenCalledWith(rateLimits)
     expect(registerGrokAccountHandlersMock).toHaveBeenCalled()
     expect(registerZhipuCredentialsHandlersMock).toHaveBeenCalledWith(rateLimits)
+    expect(registerCursorAccountHandlersMock).toHaveBeenCalled()
     expect(registerRateLimitHandlersMock).toHaveBeenCalledWith(rateLimits, codexAccounts)
     expect(registerGitHubHandlersMock).toHaveBeenCalledWith(store, stats)
     expect(registerLinearHandlersMock).toHaveBeenCalled()

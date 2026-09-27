@@ -99,7 +99,7 @@ export function useStatusBarController(floatingTerminalOpen: boolean) {
     return null
   }
 
-  const { claude, codex, gemini, opencodeGo, kimi, antigravity, minimax, grok } = rateLimits
+  const { claude, codex, gemini, opencodeGo, kimi, antigravity, minimax, grok, cursor } = rateLimits
 
   // Why: a bar is earned by a live snapshot or durable Settings setup; detection-gating hides per-CLI bars when the agent isn't on PATH.
   // Why: Antigravity has no persisted credential, so a checked status item + detected CLI is the durable "show its slot" signal.
@@ -115,7 +115,8 @@ export function useStatusBarController(floatingTerminalOpen: boolean) {
     minimaxApiKeyConfigured: rateLimits.minimaxApiKeyConfigured,
     opencodeGoApiKeyConfigured: rateLimits.opencodeGoApiKeyConfigured,
     grokAuthConfigured: rateLimits.grokAuthConfigured,
-    zhipuCredentialsConfigured: rateLimits.zhipuCredentialsConfigured
+    zhipuCredentialsConfigured: rateLimits.zhipuCredentialsConfigured,
+    cursorAuthConfigured: rateLimits.cursorAuthConfigured
   }
   const visibleClaude = getVisibleUsageProvider('claude', claude, usageSettings)
   const visibleCodex = getVisibleUsageProvider('codex', codex, usageSettings)
@@ -125,6 +126,7 @@ export function useStatusBarController(floatingTerminalOpen: boolean) {
   const visibleMiniMax = getVisibleUsageProvider('minimax', minimax, usageSettings)
   const visibleGrok = getVisibleUsageProvider('grok', grok, usageSettings)
   const visibleZhipu = getVisibleUsageProvider('zhipu', rateLimits.zhipu, usageSettings)
+  const visibleCursor = getVisibleUsageProvider('cursor', cursor, usageSettings)
   const showClaude =
     visibleClaude !== null &&
     statusBarItems.includes('claude') &&
@@ -153,6 +155,9 @@ export function useStatusBarController(floatingTerminalOpen: boolean) {
     isStatusBarItemAvailable('grok', detectedAgentIds)
   // Why: Zhipu uses a stored web token, not a CLI on PATH, so detection-gating does not apply.
   const showZhipu = visibleZhipu !== null && statusBarItems.includes('zhipu')
+  // Why: a Cursor session can come from the IDE alone, so PATH detection of
+  // cursor-agent would hide a real meter from IDE-only users.
+  const showCursor = visibleCursor !== null && statusBarItems.includes('cursor')
   // Why: OpenCode Go is web/cookie-auth, not a CLI on PATH, so detection-gating doesn't apply.
   const visibleOpencodeGo = getVisibleUsageProvider('opencode-go', opencodeGo, usageSettings)
   const showOpencodeGo = visibleOpencodeGo !== null && statusBarItems.includes('opencode-go')
@@ -171,11 +176,12 @@ export function useStatusBarController(floatingTerminalOpen: boolean) {
     showAntigravity ||
     showMiniMax ||
     showGrok ||
-    showZhipu
+    showZhipu ||
+    showCursor
   const anyVisible = hasVisibleUsageMeters || showResourceUsage
   // Why: include Settings so durable managed accounts count — a configured user isn't shown the empty state while snapshots hydrate.
   const isEmptyUsageState = isUsageEmptyState(
-    { claude, codex, gemini, opencodeGo, kimi, antigravity, minimax, grok, zhipu: rateLimits.zhipu },
+    { claude, codex, gemini, opencodeGo, kimi, antigravity, minimax, grok, zhipu: rateLimits.zhipu, cursor },
     usageSettings
   )
   // Why: one-time nudge — once dismissed, stays hidden even if providers reconnect later.
@@ -189,7 +195,8 @@ export function useStatusBarController(floatingTerminalOpen: boolean) {
     antigravity?.status === 'fetching' ||
     minimax?.status === 'fetching' ||
     grok?.status === 'fetching' ||
-    rateLimits.zhipu?.status === 'fetching'
+    rateLimits.zhipu?.status === 'fetching' ||
+    cursor?.status === 'fetching'
 
   const compact = containerWidth < 900
   const iconOnly = containerWidth < 500
@@ -209,7 +216,8 @@ export function useStatusBarController(floatingTerminalOpen: boolean) {
     showKimi ? visibleKimi : null,
     showMiniMax ? visibleMiniMax : null,
     showGrok ? visibleGrok : null,
-    showZhipu ? visibleZhipu : null
+    showZhipu ? visibleZhipu : null,
+    showCursor ? visibleCursor : null
   ].filter((p): p is ProviderRateLimits => p !== null)
 
   const handleManageAccounts = (): void => {

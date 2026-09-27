@@ -110,6 +110,7 @@ export type InternalRateLimitState = {
   minimax: ProviderRateLimits | null
   grok: ProviderRateLimits | null
   zhipu: ProviderRateLimits | null
+  cursor: ProviderRateLimits | null
 }
 
 export function normalizePollingInterval(ms: number): number {

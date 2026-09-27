@@ -4,6 +4,7 @@ import { createWebE2EApi } from './preload-api/web-e2e-api'
 import {
   createClaudeAccountsApi,
   createCodexAccountsApi,
+  createCursorAccountsApi,
   createGrokAccountsApi,
   createMiniMaxCredentialsApi,
   createZhipuCredentialsApi
@@ -109,6 +110,7 @@ function createWebPreloadApi(): Partial<PreloadApi> {
     minimaxCredentials: createMiniMaxCredentialsApi(),
     zhipuCredentials: createZhipuCredentialsApi(),
     grokAccounts: createGrokAccountsApi(),
+    cursorAccounts: createCursorAccountsApi(),
     codexAccounts: createCodexAccountsApi(),
     claudeAccounts: createClaudeAccountsApi(),
     cli: createCliApi(),

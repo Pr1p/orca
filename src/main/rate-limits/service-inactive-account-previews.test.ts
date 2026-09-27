@@ -51,6 +51,14 @@ vi.mock('./zhipu-fetcher', () => ({
   fetchZhipuRateLimits: vi.fn()
 }))
 
+vi.mock('./cursor-fetcher', () => ({
+  fetchCursorRateLimits: vi.fn()
+}))
+
+vi.mock('./cursor-auth', () => ({
+  readCursorAuthSession: vi.fn()
+}))
+
 vi.mock('./grok-auth', () => ({
   readGrokAuthSession: vi.fn(() => ({ status: 'missing' }))
 }))

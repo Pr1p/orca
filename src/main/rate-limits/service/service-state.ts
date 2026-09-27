@@ -33,10 +33,14 @@ export abstract class RateLimitServiceState {
     antigravity: null,
     minimax: null,
     grok: null,
-    zhipu: null
+    zhipu: null,
+    cursor: null
   }
   protected grokAuthConfigured = readGrokAuthSession().status === 'ok'
   protected zhipuCredentialsConfigured = hasZhipuCredentials()
+  // Why: the Cursor probe reads the macOS Keychain, so it cannot run synchronously
+  // at construction the way Grok's auth-file probe does; each fetch cycle sets it.
+  protected cursorAuthConfigured = false
   protected openCodeGoApiKeyConfigured = false
   protected pollInterval: number = DEFAULT_POLL_MS
   protected timer: ReturnType<typeof setInterval> | null = null
@@ -51,7 +55,8 @@ export abstract class RateLimitServiceState {
     minimax: 0,
     grok: 0,
     zhipu: 0,
-    antigravity: 0
+    antigravity: 0,
+    cursor: 0
   }
   // Why: consecutive failures drive exponential backoff of the fast activation-retry lane; reset on any success/unavailable result.
   protected activeFailureStreakByProvider: Record<ActiveRateLimitProvider, number> = {
@@ -63,7 +68,8 @@ export abstract class RateLimitServiceState {
     minimax: 0,
     grok: 0,
     zhipu: 0,
-    antigravity: 0
+    antigravity: 0,
+    cursor: 0
   }
   protected mainWindow: BrowserWindow | null = null
   protected detachWindowListeners: (() => void) | null = null

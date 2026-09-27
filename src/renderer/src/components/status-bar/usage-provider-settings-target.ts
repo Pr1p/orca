@@ -20,6 +20,8 @@ export function getUsageProviderAccountsSectionId(
       return 'accounts-grok'
     case 'zhipu':
       return 'accounts-zhipu'
+    case 'cursor':
+      return 'accounts-cursor'
     case 'kimi':
       // Why: Orca must not mutate Kimi's CLI-owned credential lifecycle.
       return null

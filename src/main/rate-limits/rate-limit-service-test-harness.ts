@@ -8,6 +8,8 @@ import { fetchKimiRateLimits } from './kimi-fetcher'
 import { fetchMiniMaxRateLimits } from './minimax/minimax-fetcher'
 import { fetchGrokRateLimits } from './grok-fetcher'
 import { readGrokAuthSession } from './grok-auth'
+import { fetchCursorRateLimits } from './cursor-fetcher'
+import { readCursorAuthSession } from './cursor-auth'
 import { fetchOpenCodeGoUsage } from './opencode-go-usage-source-selection'
 import { hasMiniMaxSessionCookie } from '../minimax/minimax-cookie-store'
 import { fetchZhipuRateLimits } from './zhipu-fetcher'
@@ -92,6 +94,7 @@ export function mockFreshBackgroundProviderFetches(): void {
   vi.mocked(fetchMiniMaxRateLimits).mockImplementation(async () => okProvider('minimax', 0))
   vi.mocked(fetchGrokRateLimits).mockImplementation(async () => unavailableProvider('grok'))
   vi.mocked(fetchZhipuRateLimits).mockImplementation(async () => unavailableProvider('zhipu'))
+  vi.mocked(fetchCursorRateLimits).mockImplementation(async () => unavailableProvider('cursor'))
 }
 
 /** Shared `beforeEach` body: healthy stubs for every provider the service polls. */
@@ -110,10 +113,12 @@ export function resetRateLimitProviderMocks(): void {
     status: 'unavailable'
   })
   vi.mocked(fetchZhipuRateLimits).mockResolvedValue(unavailableProvider('zhipu'))
+  vi.mocked(fetchCursorRateLimits).mockResolvedValue(unavailableProvider('cursor'))
   vi.mocked(hasMiniMaxSessionCookie).mockReturnValue(false)
   vi.mocked(hasZhipuCredentials).mockReturnValue(false)
   vi.mocked(readZhipuCredentials).mockReturnValue(null)
   vi.mocked(readGrokAuthSession).mockReturnValue({ status: 'missing' })
+  vi.mocked(readCursorAuthSession).mockResolvedValue({ status: 'missing' })
 }
 
 type RateLimitWindow = Parameters<RateLimitService['attach']>[0]

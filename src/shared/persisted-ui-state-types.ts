@@ -120,6 +120,8 @@ export type PersistedUIState = {
   _grokStatusBarDefaultAdded?: boolean
   /** One-shot migration flag for adding the default-on Zhipu status item. */
   _zhipuStatusBarDefaultAdded?: boolean
+  /** One-shot migration flag for adding the default-on Cursor status item. */
+  _cursorStatusBarDefaultAdded?: boolean
   statusBarItems: StatusBarItem[]
   statusBarVisible: boolean
   /** Why: this is client-side presentation, not a provider/account or execution-host setting. */
