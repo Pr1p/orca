@@ -135,7 +135,7 @@ describe('createEditorSlice editor host ownership', () => {
       },
       activeWorktreeId: 'wt-1',
       activeWorkspaceExecutionHostId: 'runtime:hub-b',
-      settings: { activeRuntimeEnvironmentId: 'hub-b' } as never
+      settings: { activeRuntimeEnvironmentId: null } as never
     } as Partial<AppState>)
 
     store.getState().openFile({
