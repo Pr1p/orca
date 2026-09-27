@@ -38,6 +38,11 @@ describe('MissingEditorFileBanner', () => {
     let liveFile: OpenFile = file
     const setExternalMutation = vi.fn(
       (_: string, externalMutation: OpenFile['externalMutation']) => {
+        if (externalMutation === null) {
+          const { externalMutation: _, ...fileWithoutMutation } = liveFile
+          liveFile = fileWithoutMutation
+          return
+        }
         liveFile = { ...liveFile, externalMutation }
       }
     )
@@ -47,13 +52,18 @@ describe('MissingEditorFileBanner', () => {
     await restoreMissingEditorFile(file)
 
     expect(setExternalMutation).toHaveBeenCalledTimes(1)
-    expect(liveFile.externalMutation).toBeNull()
+    expect(liveFile.externalMutation).toBeUndefined()
   })
 
   it('restores the missing-file mark when saving fails without a newer update', async () => {
     let liveFile: OpenFile = file
     const setExternalMutation = vi.fn(
       (_: string, externalMutation: OpenFile['externalMutation']) => {
+        if (externalMutation === null) {
+          const { externalMutation: _, ...fileWithoutMutation } = liveFile
+          liveFile = fileWithoutMutation
+          return
+        }
         liveFile = { ...liveFile, externalMutation }
       }
     )

@@ -15,7 +15,7 @@ export async function restoreMissingEditorFile(file: OpenFile): Promise<void> {
   state.setExternalMutation(file.id, null)
   const saved = await attemptEditorFileSave({ fileId: file.id })
   const liveFile = useAppStore.getState().openFiles.find((candidate) => candidate.id === file.id)
-  if (!saved && liveFile?.externalMutation === null) {
+  if (!saved && liveFile?.externalMutation === undefined) {
     useAppStore.getState().setExternalMutation(file.id, mutation)
   }
 }
