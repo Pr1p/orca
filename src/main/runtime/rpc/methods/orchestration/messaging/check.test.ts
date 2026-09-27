@@ -247,6 +247,39 @@ describe('orchestration RPC methods', () => {
       expect(db.getUnreadMessages(`run:${activeRunId}`)).toHaveLength(1)
     })
 
+    it('names the id-kind mismatch when --ack is given a message id', async () => {
+      setup()
+      db.insertMessage({
+        from: 'worker',
+        to: `run:${activeRunId}`,
+        subject: 'queued',
+        runId: activeRunId
+      })
+      const [queued] = db.getUnreadMessages(`run:${activeRunId}`)
+      const checked = await call('orchestration.check', { terminal: 'term_coord' })
+      if (!checked || typeof checked !== 'object' || !('deliveryId' in checked)) {
+        throw new Error('Expected a mailbox delivery')
+      }
+      const deliveryId = checked.deliveryId
+      expect(typeof deliveryId).toBe('string')
+
+      await expect(
+        call('orchestration.check', { terminal: 'term_coord', ack: queued.id })
+      ).rejects.toMatchObject({
+        code: 'stale_delivery',
+        message: `${queued.id} is a message id, not a delivery id. Acknowledge the batch with the deliveryId field from the check response; process the entire batch before acknowledging.`
+      })
+      expect(db.getMessageById(queued.id)).toMatchObject({ id: queued.id, read: 0 })
+      expect(await call('orchestration.check', { terminal: 'term_coord' })).toMatchObject({
+        deliveryId,
+        messages: [{ id: queued.id }]
+      })
+      expect(
+        await call('orchestration.check', { terminal: 'term_coord', ack: deliveryId })
+      ).toMatchObject({ acknowledged: deliveryId })
+      expect(db.getMessageById(queued.id)).toMatchObject({ read: 1 })
+    })
+
     it('acknowledges a Run Delivery before returning --peek history', async () => {
       setup()
       db.insertMessage({
@@ -790,132 +823,6 @@ describe('orchestration RPC methods', () => {
 
       expect(result).toEqual({ messages: [], count: 0 })
       expect(db.getUnreadMessages('b')).toHaveLength(1)
-    })
-  })
-
-  describe('orchestration.inbox', () => {
-    it('returns all messages', async () => {
-      setup()
-      db.insertMessage({ from: 'a', to: 'b', subject: 'one' })
-      db.insertMessage({ from: 'c', to: 'd', subject: 'two' })
-
-      const result = (await call('orchestration.inbox', {})) as { count: number }
-      expect(result.count).toBe(2)
-    })
-
-    it('--terminal <handle> matches check --all output for the same handle', async () => {
-      setup()
-      db.insertMessage({ from: 'a', to: 'b', subject: 'one' })
-      db.insertMessage({ from: 'a', to: 'b', subject: 'two' })
-      db.insertMessage({ from: 'a', to: 'c', subject: 'other' })
-
-      const inbox = (await call('orchestration.inbox', { terminal: 'b' })) as {
-        messages: { id: string; to_handle: string }[]
-        count: number
-      }
-      const check = (await call('orchestration.check', {
-        terminal: 'b',
-        all: true
-      })) as { messages: { id: string; to_handle: string }[]; count: number }
-
-      expect(inbox.count).toBe(2)
-      expect(check.count).toBe(2)
-      // Same rows in the same order — both use sequence DESC
-      expect(inbox.messages.map((m) => m.id)).toEqual(check.messages.map((m) => m.id))
-      expect(inbox.messages.every((m) => m.to_handle === 'b')).toBe(true)
-    })
-
-    it('declares a terminal recipient scope and its current Run binding', async () => {
-      setup()
-      db.insertMessage({
-        from: 'term_worker',
-        to: `run:${activeRunId}`,
-        subject: 'Run-wide mail',
-        runId: activeRunId
-      })
-
-      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the RPC harness parses this method's schema before returning its fixed receipt shape.
-      const result = (await call('orchestration.inbox', {
-        terminal: 'term_coord'
-      })) as {
-        count: number
-        scope: string
-        runBinding: string | null
-      }
-
-      expect(result).toMatchObject({
-        count: 0,
-        scope: 'messages addressed to terminal term_coord',
-        runBinding: activeRunId
-      })
-    })
-
-    it('reads a Run mailbox only for its current consumer', async () => {
-      setup()
-      db.insertMessage({
-        from: 'term_worker',
-        to: `run:${activeRunId}`,
-        subject: 'Run-wide mail',
-        runId: activeRunId
-      })
-
-      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the RPC harness parses this method's schema before returning its fixed receipt shape.
-      const result = (await call('orchestration.inbox', {
-        terminal: 'term_coord',
-        run: activeRunId
-      })) as {
-        messages: { subject: string }[]
-        count: number
-        scope: string
-        runBinding: string | null
-      }
-
-      expect(result).toMatchObject({
-        count: 1,
-        messages: [{ subject: 'Run-wide mail' }],
-        scope: `messages addressed to Run ${activeRunId}`,
-        runBinding: activeRunId
-      })
-    })
-
-    it('rejects a Run-scoped read when a live terminal binding disagrees with a supplied pane', async () => {
-      setup(false)
-      const paneA = 'tab_a:11111111-1111-4111-8111-111111111111'
-      const paneB = 'tab_b:22222222-2222-4222-9222-222222222222'
-      vi.spyOn(runtime, 'getTerminalPaneKey').mockImplementation((handle) =>
-        handle === 'term_a' ? paneA : handle === 'term_b' ? paneB : null
-      )
-      const runA = db.createRun({
-        objective: 'Run A',
-        coordinatorHandle: 'term_a',
-        coordinatorPaneKey: paneA
-      })
-      const runB = db.createRun({
-        objective: 'Run B',
-        coordinatorHandle: 'term_b',
-        coordinatorPaneKey: paneB
-      })
-
-      await expect(
-        call('orchestration.inbox', {
-          terminal: 'term_a',
-          terminalPaneKey: paneB,
-          run: runB.id
-        })
-      ).rejects.toMatchObject({
-        code: 'consumer_fenced',
-        message: `This coordinator terminal is bound to ${runA.id}, not ${runB.id}.`
-      })
-    })
-
-    it('--terminal <unknown_handle> returns empty list without erroring', async () => {
-      setup()
-      db.insertMessage({ from: 'a', to: 'b', subject: 'one' })
-
-      const result = (await call('orchestration.inbox', {
-        terminal: 'does_not_exist'
-      })) as { count: number }
-      expect(result.count).toBe(0)
     })
   })
 })
