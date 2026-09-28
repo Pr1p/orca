@@ -20,9 +20,11 @@ import { translate } from '@/i18n/i18n'
 // Why: pinned so PREVIEW_BUFFER never wraps; 36 cols fits the 32-char longest line + margin (larger fonts clip, not wrap).
 const PREVIEW_COLS = 36
 const PREVIEW_ROWS = 15
+// Why: min-height, not fixed height — xterm sizes itself as rows × rendered cell height, so at larger
+// fonts/line-heights the frame must grow to keep every preview row visible instead of clipping it.
 const PREVIEW_HEIGHT_CLASS_BY_SIZE = {
-  default: 'h-[300px]',
-  compact: 'h-64'
+  default: 'min-h-[300px]',
+  compact: 'min-h-64'
 } as const
 
 // Why: color-only stub pane; 40px is wide enough to read inactive-pane opacity dim, narrow enough not to crowd content.
