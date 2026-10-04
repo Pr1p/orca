@@ -20,6 +20,7 @@ import {
   getSurfaceLayoutStyle
 } from './anchored-surface-dom-zoom'
 import {
+  canStartDiagramSurfacePan,
   DIAGRAM_SURFACE_ZOOM_BOUNDS,
   DIAGRAM_SURFACE_ZOOM_STEP,
   MAX_DIAGRAM_SURFACE_ZOOM,
@@ -228,28 +229,31 @@ export default function ZoomableDiagramSurface({
     setIsPanning(false)
   }, [])
 
-  const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0 && event.button !== 1) {
-      return
-    }
+  const handlePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!canStartDiagramSurfacePan(event.button, isPanReady)) {
+        return
+      }
 
-    const surface = surfaceRef.current
-    if (!surface) {
-      return
-    }
+      const surface = surfaceRef.current
+      if (!surface) {
+        return
+      }
 
-    surface.focus({ preventScroll: true })
-    panDragRef.current = {
-      clientX: event.clientX,
-      clientY: event.clientY,
-      didMove: false,
-      pointerId: event.pointerId,
-      scrollLeft: surface.scrollLeft,
-      scrollTop: surface.scrollTop
-    }
-    surface.setPointerCapture?.(event.pointerId)
-    event.preventDefault()
-  }, [])
+      surface.focus({ preventScroll: true })
+      panDragRef.current = {
+        clientX: event.clientX,
+        clientY: event.clientY,
+        didMove: false,
+        pointerId: event.pointerId,
+        scrollLeft: surface.scrollLeft,
+        scrollTop: surface.scrollTop
+      }
+      surface.setPointerCapture?.(event.pointerId)
+      event.preventDefault()
+    },
+    [isPanReady]
+  )
 
   const handlePointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const drag = panDragRef.current

@@ -29,6 +29,10 @@ export type DiagramSurfacePanStart = {
   scrollTop: number
 }
 
+export function canStartDiagramSurfacePan(button: number, isPanReady: boolean): boolean {
+  return button === 1 || (button === 0 && isPanReady)
+}
+
 export function getDiagramSurfaceKeyboardZoomIntent(
   event: DiagramSurfaceKeyboardZoomEvent,
   platform: NodeJS.Platform
