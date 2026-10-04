@@ -172,6 +172,53 @@ describe('MermaidViewer', () => {
     expect(onSave).not.toHaveBeenCalled()
   })
 
+  it('saves the latest source change without waiting for a render', () => {
+    const onSave = vi.fn()
+    const nextContent = 'flowchart TD\n  A --> Saved'
+
+    render(
+      <MermaidViewer
+        content={'flowchart TD\n  A --> B'}
+        filePath="/repo/demo.mmd"
+        onContentChange={vi.fn()}
+        onSave={onSave}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Code' }))
+    const source = getMermaidSource()
+    fireEvent.change(source, { target: { value: nextContent } })
+    const modifier = navigator.userAgent.includes('Mac') ? { metaKey: true } : { ctrlKey: true }
+    fireEvent.keyDown(source, { key: 's', code: 'KeyS', ...modifier })
+
+    expect(onSave).toHaveBeenCalledWith(nextContent)
+  })
+
+  it('keeps a newer draft when an older parent echo arrives late', () => {
+    const initialContent = 'flowchart TD\n  A --> B'
+    const acknowledgedContent = 'flowchart TD\n  A --> C'
+    const latestContent = 'flowchart TD\n  A --> D'
+    const { rerender } = render(
+      <MermaidViewer content={initialContent} filePath="/repo/demo.mmd" onContentChange={vi.fn()} />
+    )
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Code' }))
+    fireEvent.change(getMermaidSource(), { target: { value: acknowledgedContent } })
+    rerender(
+      <MermaidViewer
+        content={acknowledgedContent}
+        filePath="/repo/demo.mmd"
+        onContentChange={vi.fn()}
+      />
+    )
+    fireEvent.change(getMermaidSource(), { target: { value: latestContent } })
+    rerender(
+      <MermaidViewer content={initialContent} filePath="/repo/demo.mmd" onContentChange={vi.fn()} />
+    )
+
+    expect(getMermaidSource().value).toBe(latestContent)
+  })
+
   it('flushes the diagram immediately when switching to a different file', () => {
     vi.useFakeTimers()
 
