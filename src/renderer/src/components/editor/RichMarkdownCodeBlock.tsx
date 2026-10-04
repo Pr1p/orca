@@ -4,9 +4,10 @@ import { useTranslation } from 'react-i18next'
 import { NodeViewContent, NodeViewWrapper } from '@tiptap/react'
 import type { NodeViewProps } from '@tiptap/react'
 import { Copy, Check } from 'lucide-react'
-import MermaidBlock from './MermaidBlock'
 import { useDocumentDarkTheme } from '@/hooks/use-document-dark-theme'
 import { translate } from '@/i18n/i18n'
+import { cn } from '@/lib/utils'
+import RichMarkdownMermaidViews from './RichMarkdownMermaidViews'
 import {
   getCodeBlockLanguageLabel,
   getCodeBlockLanguages,
@@ -86,7 +87,12 @@ export function RichMarkdownCodeBlock({
   )
 
   return (
-    <NodeViewWrapper className="rich-markdown-code-block-wrapper">
+    <NodeViewWrapper
+      className={cn(
+        'rich-markdown-code-block-wrapper',
+        isMermaid && 'rich-markdown-mermaid-code-block'
+      )}
+    >
       <select
         className="rich-markdown-code-block-lang"
         contentEditable={false}
@@ -135,12 +141,10 @@ export function RichMarkdownCodeBlock({
           <Copy size={14} />
         )}
       </button>
-      <NodeViewContent<'pre'> as="pre" />
-      {/* Keep Mermaid source editable; native SVG labels survive the preview’s sanitization. */}
-      {isMermaid && node.textContent.trim() && (
-        <div contentEditable={false} className="mermaid-preview">
-          <MermaidBlock content={node.textContent.trim()} isDark={isDark} htmlLabels={false} />
-        </div>
+      {isMermaid ? (
+        <RichMarkdownMermaidViews content={node.textContent} isDark={isDark} />
+      ) : (
+        <NodeViewContent<'pre'> as="pre" />
       )}
     </NodeViewWrapper>
   )
