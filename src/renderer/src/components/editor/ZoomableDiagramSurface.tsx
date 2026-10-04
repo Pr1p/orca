@@ -93,6 +93,7 @@ export default function ZoomableDiagramSurface({
     (DiagramSurfacePanStart & { didMove: boolean; pointerId: number }) | null
   >(null)
   const [zoom, setZoom] = useState(1)
+  const [syncedResetKey, setSyncedResetKey] = useState(resetKey)
   const [isPanReady, setIsPanReady] = useState(false)
   const [isPanning, setIsPanning] = useState(false)
   const [surfaceElement, setSurfaceElement] = useState<HTMLDivElement | null>(null)
@@ -101,6 +102,11 @@ export default function ZoomableDiagramSurface({
   const shortcutPlatform = useMemo(() => getShortcutPlatform(), [])
 
   useScrollTopCacheRestore(surfaceRef, scrollCacheKey, diagramKey)
+
+  if (syncedResetKey !== resetKey) {
+    setSyncedResetKey(resetKey)
+    setZoom(1)
+  }
 
   const zoomPercent = Math.round(zoom * 100)
   const layoutSize = useMemo(
@@ -162,10 +168,6 @@ export default function ZoomableDiagramSurface({
       dimensionsEqual(currentSize, nextSize) ? currentSize : nextSize
     )
   }, [])
-
-  useEffect(() => {
-    setZoom(1)
-  }, [resetKey])
 
   useEffect(() => {
     if (!surfaceElement) {

@@ -28,6 +28,14 @@ vi.mock('./ZoomableDiagramSurface', () => ({
 import MermaidViewer from './MermaidViewer'
 import { MERMAID_RENDER_DEBOUNCE_MS } from './use-debounced-mermaid-diagram-content'
 
+function getMermaidSource(): HTMLTextAreaElement {
+  const source = screen.getByLabelText('Mermaid source')
+  if (!(source instanceof HTMLTextAreaElement)) {
+    throw new Error('Expected Mermaid source to be a textarea')
+  }
+  return source
+}
+
 afterEach(() => {
   cleanup()
   vi.useRealTimers()
@@ -72,7 +80,7 @@ describe('MermaidViewer', () => {
 
     fireEvent.click(screen.getByRole('radio', { name: 'Code' }))
 
-    expect((screen.getByLabelText('Mermaid source') as HTMLTextAreaElement).readOnly).toBe(false)
+    expect(getMermaidSource().readOnly).toBe(false)
     expect(screen.queryByTestId('diagram-surface')).toBeNull()
   })
 
@@ -86,9 +94,7 @@ describe('MermaidViewer', () => {
     })
 
     expect(screen.getByRole('radio', { name: 'Split' }).getAttribute('aria-checked')).toBe('true')
-    expect((screen.getByLabelText('Mermaid source') as HTMLTextAreaElement).value).toBe(
-      'flowchart LR\n  Start --> Done'
-    )
+    expect(getMermaidSource().value).toBe('flowchart LR\n  Start --> Done')
     act(() => {
       vi.advanceTimersByTime(MERMAID_RENDER_DEBOUNCE_MS)
     })
@@ -119,9 +125,7 @@ describe('MermaidViewer', () => {
       />
     )
 
-    expect((screen.getByLabelText('Mermaid source') as HTMLTextAreaElement).value).toBe(
-      'flowchart TD\n  A --> Draft'
-    )
+    expect(getMermaidSource().value).toBe('flowchart TD\n  A --> Draft')
   })
 
   it('accepts external content updates for the same file (reload, external edit)', () => {
@@ -143,9 +147,7 @@ describe('MermaidViewer', () => {
       />
     )
 
-    expect((screen.getByLabelText('Mermaid source') as HTMLTextAreaElement).value).toBe(
-      'flowchart TD\n  A --> Reloaded'
-    )
+    expect(getMermaidSource().value).toBe('flowchart TD\n  A --> Reloaded')
   })
 
   it('keeps read-only files immutable and suppresses the save shortcut', () => {
@@ -162,7 +164,7 @@ describe('MermaidViewer', () => {
     )
 
     fireEvent.click(screen.getByRole('radio', { name: 'Code' }))
-    const source = screen.getByLabelText('Mermaid source') as HTMLTextAreaElement
+    const source = getMermaidSource()
     const modifier = navigator.userAgent.includes('Mac') ? { metaKey: true } : { ctrlKey: true }
     fireEvent.keyDown(source, { key: 's', code: 'KeyS', ...modifier })
 

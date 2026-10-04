@@ -25,5 +25,5 @@ export function getMermaidTextDiagramModeOptions(
 }
 
 export function isMermaidTextDiagramMode(value: string): value is MermaidTextDiagramMode {
-  return (MERMAID_TEXT_DIAGRAM_MODES as readonly string[]).includes(value)
+  return MERMAID_TEXT_DIAGRAM_MODES.some((mode) => mode === value)
 }

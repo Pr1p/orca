@@ -32,26 +32,27 @@ export default function RichMarkdownMermaidViews({
 
   return (
     <>
-      <ToggleGroup
-        type="single"
-        size="sm"
-        variant="outline"
-        spacing={0}
-        value={mode}
-        className="rich-markdown-mermaid-view-toggle"
-        contentEditable={false}
-        onValueChange={(nextMode) => {
-          if (isMermaidTextDiagramMode(nextMode)) {
-            setMode(nextMode)
-          }
-        }}
-      >
-        {modeOptions.map((option) => (
-          <ToggleGroupItem key={option.value} value={option.value}>
-            {option.label}
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
+      <div className="rich-markdown-mermaid-view-toggle">
+        <ToggleGroup
+          type="single"
+          size="sm"
+          variant="outline"
+          spacing={0}
+          value={mode}
+          contentEditable={false}
+          onValueChange={(nextMode) => {
+            if (isMermaidTextDiagramMode(nextMode)) {
+              setMode(nextMode)
+            }
+          }}
+        >
+          {modeOptions.map((option) => (
+            <ToggleGroupItem key={option.value} value={option.value}>
+              {option.label}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      </div>
       <div className={cn('rich-markdown-mermaid-layout', `is-${mode}`)}>
         <NodeViewContent<'pre'>
           as="pre"
