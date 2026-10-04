@@ -10,6 +10,13 @@ import { MobilePairingSetupSection } from './MobilePairingSetupSection'
 import type { MobileNetworkInterface } from './mobile-network-interface-selection'
 import { TooltipProvider } from '../ui/tooltip'
 
+vi.mock('@/i18n/i18n', () => ({
+  translate: (_key: string, fallback: string, variables?: Record<string, string>): string =>
+    fallback.replace(/\{\{(\w+)\}\}/g, (placeholder, variableName: string) => {
+      return variables?.[variableName] ?? placeholder
+    })
+}))
+
 afterEach(() => cleanup())
 
 const LAN: MobileNetworkInterface = { name: 'en0', address: '192.168.1.24' }
