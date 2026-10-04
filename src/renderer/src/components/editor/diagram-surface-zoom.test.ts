@@ -2,12 +2,20 @@ import { describe, expect, it } from 'vitest'
 import {
   MAX_DIAGRAM_SURFACE_ZOOM,
   MIN_DIAGRAM_SURFACE_ZOOM,
+  canStartDiagramSurfacePan,
   getDiagramSurfaceKeyboardZoomIntent,
   getDraggedDiagramSurfaceScrollPosition,
   getZoomedDiagramLayoutSize
 } from './diagram-surface-zoom'
 
 describe('diagram surface zoom helpers', () => {
+  it('only pans with the primary button while Space panning is ready', () => {
+    expect(canStartDiagramSurfacePan(0, false)).toBe(false)
+    expect(canStartDiagramSurfacePan(0, true)).toBe(true)
+    expect(canStartDiagramSurfacePan(1, false)).toBe(true)
+    expect(canStartDiagramSurfacePan(2, true)).toBe(false)
+  })
+
   it('fits large diagrams before applying user zoom', () => {
     expect(
       getZoomedDiagramLayoutSize({
