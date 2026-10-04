@@ -31,26 +31,32 @@ export default function MermaidViewer({
   const rootRef = useRef<HTMLDivElement | null>(null)
   const latestContentRef = useRef(content)
   const lastEmittedContentRef = useRef(content)
+  const pendingLocalContentRef = useRef<string | null>(null)
   const [mode, setMode] = useState<MermaidTextDiagramMode>('chart')
   const [draftContent, setDraftContent] = useState(content)
   const isDark = useDocumentDarkTheme()
   const [syncedFilePath, setSyncedFilePath] = useState(filePath)
   const [syncedContent, setSyncedContent] = useState(content)
 
-  // File switch: immediate sync so debounce hook flushes. Same-file: only accept
-  // content that differs from what we last emitted (external reload, not echo).
+  // Wait for a local-edit acknowledgement so a late parent echo cannot replace it.
   if (syncedFilePath !== filePath) {
     setSyncedFilePath(filePath)
     setSyncedContent(content)
     setDraftContent(content)
     lastEmittedContentRef.current = content
     latestContentRef.current = content
+    pendingLocalContentRef.current = null
   } else if (content !== syncedContent) {
-    setSyncedContent(content)
-    if (content !== lastEmittedContentRef.current) {
-      setDraftContent(content)
-      lastEmittedContentRef.current = content
-      latestContentRef.current = content
+    if (content === pendingLocalContentRef.current) {
+      pendingLocalContentRef.current = null
+      setSyncedContent(content)
+    } else if (pendingLocalContentRef.current === null) {
+      setSyncedContent(content)
+      if (content !== lastEmittedContentRef.current) {
+        setDraftContent(content)
+        lastEmittedContentRef.current = content
+        latestContentRef.current = content
+      }
     }
   }
 
@@ -87,7 +93,9 @@ export default function MermaidViewer({
       setMode('split')
     }
     setDraftContent(nextContent)
+    latestContentRef.current = nextContent
     lastEmittedContentRef.current = nextContent
+    pendingLocalContentRef.current = nextContent
     onContentChange?.(nextContent)
   }
 
