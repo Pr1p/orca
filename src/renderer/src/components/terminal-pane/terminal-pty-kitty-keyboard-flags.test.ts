@@ -12,7 +12,7 @@ describe('terminal PTY Kitty keyboard flags registry', () => {
     resetPtyKittyKeyboardModeTrackersForTests()
   })
 
-  it('reads the current flags for a registered PTY tracker', () => {
+  it('keeps proven flags available after a pane unbinds from its PTY', () => {
     const tracker = new TerminalKittyKeyboardModeTracker()
 
     registerPtyKittyKeyboardModeTracker('pty-1', tracker)
@@ -22,6 +22,9 @@ describe('terminal PTY Kitty keyboard flags registry', () => {
     expect(getPtyKittyKeyboardFlags('pty-1')).toBe(1)
 
     unregisterPtyKittyKeyboardModeTracker('pty-1', tracker)
+    expect(getPtyKittyKeyboardFlags('pty-1')).toBe(1)
+
+    registerPtyKittyKeyboardModeTracker('pty-1', new TerminalKittyKeyboardModeTracker())
     expect(getPtyKittyKeyboardFlags('pty-1')).toBe(0)
   })
 

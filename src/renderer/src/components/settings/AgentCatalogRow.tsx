@@ -155,7 +155,7 @@ export function AgentCatalogRow({
                     ? translate('auto.components.settings.AgentsPane.d7625cf8b2', 'Default agent')
                     : translate('auto.components.settings.AgentsPane.5f986a9b92', 'Set as default')
                 }
-                className="h-7 w-full justify-center gap-1 text-xs"
+                className="w-full"
               >
                 {isDefault && <Check className="size-3" />}
                 {isDefault
@@ -182,7 +182,7 @@ export function AgentCatalogRow({
               <Button
                 type="button"
                 variant="ghost"
-                size="icon-sm"
+                size="icon-xs"
                 onClick={() => setCmdOpen((previous) => !previous)}
                 aria-label={
                   cmdOpen
@@ -195,7 +195,6 @@ export function AgentCatalogRow({
                         'Expand command override'
                       )
                 }
-                className="size-7 text-muted-foreground hover:text-foreground"
               >
                 <ChevronDown
                   className={cn('size-3.5 transition-transform', cmdOpen && 'rotate-180')}

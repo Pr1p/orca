@@ -1,5 +1,7 @@
 import type { SshChannelMultiplexer } from '../ssh/ssh-channel-multiplexer'
 import type { IPtyProvider, PtyProcessInfo, PtySpawnOptions, PtySpawnResult } from './types'
+import type { WriteSettlement } from '../../shared/pty-write-settlement'
+import type { TerminalOscColorQueryReplyColors } from '../../shared/terminal-osc-color-reply'
 import { toAppSshPtyId, toRelaySshPtyId } from './ssh-pty-id'
 import { createSshPtyAppliedSizeReader } from './ssh-pty-applied-size'
 import type {
@@ -45,7 +47,7 @@ export class SshPtyProvider implements IPtyProvider {
   deleteWorktreeHistory = (worktreeId: string): Promise<void> =>
     this.rpcOperations.deleteWorktreeHistory(worktreeId)
   write = (id: string, data: string): boolean => this.rpcOperations.write(id, data)
-  writeWithSettlement = (id: string, data: string): Promise<boolean> =>
+  writeWithSettlement = (id: string, data: string): Promise<WriteSettlement> =>
     this.rpcOperations.writeWithSettlement(id, data)
   resize = (id: string, cols: number, rows: number): void =>
     this.rpcOperations.resize(id, cols, rows)
@@ -54,8 +56,11 @@ export class SshPtyProvider implements IPtyProvider {
   getCwd = (id: string): Promise<string> => this.rpcOperations.getCwd(id)
   getInitialCwd = (id: string): Promise<string> => this.rpcOperations.getInitialCwd(id)
   clearBuffer = (id: string): Promise<void> => this.rpcOperations.clearBuffer(id)
+  resetInputModes = (id: string): Promise<void> => this.rpcOperations.resetInputModes(id)
   closeStartupQueryAuthority = (id: string): Promise<number> =>
     this.rpcOperations.closeStartupQueryAuthority(id)
+  setColorQueryReplyColors = (colors: TerminalOscColorQueryReplyColors): void =>
+    this.rpcOperations.setColorQueryReplyColors(colors)
   acknowledgeDataEvent = (id: string, charCount: number): void =>
     this.rpcOperations.acknowledgeDataEvent(id, charCount)
   hasChildProcesses = (id: string): Promise<boolean> => this.rpcOperations.hasChildProcesses(id)

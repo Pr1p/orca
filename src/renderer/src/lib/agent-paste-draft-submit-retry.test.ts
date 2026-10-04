@@ -1,4 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
+import type { GlobalSettings } from '../../../shared/global-settings-types'
 import {
   AGENT_DRAFT_PASTE_DIRECT_MAX_BYTES,
   pasteDraftWhenAgentReady,
@@ -7,16 +8,38 @@ import {
 } from './agent-paste-draft'
 import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
 
-const testState = vi.hoisted(() => ({
+type AgentDraftSubmitRetryTestState = {
+  settings: Partial<GlobalSettings>
+  ptyIdsByTabId: Record<string, string[]>
+  runtimePaneTitlesByTabId: Record<string, string>
+  tabsByWorktree: Record<string, { id: string }[]>
+  repos: { id: string; connectionId: string | null; executionHostId?: string | null }[]
+  worktreesByRepo: Record<string, { id: string; repoId: string }[]>
+}
+
+type AgentDraftSubmitRetryTestHarness = {
+  appState: AgentDraftSubmitRetryTestState
+  ptyObserver: ((data: string) => void) | null
+  unsubscribe: ReturnType<typeof vi.fn>
+  subscribeToPtyData: ReturnType<typeof vi.fn>
+  replayPreHandlerPtyData: ReturnType<typeof vi.fn>
+  isRemoteRuntimePtyId: ReturnType<typeof vi.fn>
+  getPtyKittyKeyboardFlags: ReturnType<typeof vi.fn>
+  sendRuntimePtyInputVerified: ReturnType<typeof vi.fn>
+  inspectRuntimeTerminalProcess: ReturnType<typeof vi.fn>
+  subscribeToRuntimeTerminalData: ReturnType<typeof vi.fn>
+}
+
+const testState = vi.hoisted((): AgentDraftSubmitRetryTestHarness => ({
   appState: {
-    settings: {} as Record<string, unknown>,
-    ptyIdsByTabId: { 'tab-1': ['pty-1'] } as Record<string, string[]>,
+    settings: {},
+    ptyIdsByTabId: { 'tab-1': ['pty-1'] },
     runtimePaneTitlesByTabId: {},
-    tabsByWorktree: {} as Record<string, { id: string }[]>,
-    repos: [] as { id: string; connectionId: string | null; executionHostId?: string | null }[],
-    worktreesByRepo: {} as Record<string, { id: string; repoId: string }[]>
+    tabsByWorktree: {},
+    repos: [],
+    worktreesByRepo: {}
   },
-  ptyObserver: null as ((data: string) => void) | null,
+  ptyObserver: null,
   unsubscribe: vi.fn(),
   subscribeToPtyData: vi.fn(),
   replayPreHandlerPtyData: vi.fn(),
@@ -129,7 +152,8 @@ describe('post-paste submit retry input', () => {
     expect(testState.sendRuntimePtyInputVerified).toHaveBeenLastCalledWith(
       { agentPostPasteSubmitInputs: { codex: 'ctrl-enter' } },
       'pty-1',
-      CODEX_SUBMIT_INPUT
+      CODEX_SUBMIT_INPUT,
+      'launch'
     )
     expect(vi.getTimerCount()).toBe(0)
   })
@@ -182,7 +206,8 @@ describe('post-paste submit retry input', () => {
     const competing = sendAgentDraftPasteContent(
       {},
       'pty-1',
-      'y'.repeat(AGENT_DRAFT_PASTE_DIRECT_MAX_BYTES + 1)
+      'y'.repeat(AGENT_DRAFT_PASTE_DIRECT_MAX_BYTES + 1),
+      'driving'
     )
     await flushMicrotasks(10)
     expect(writes).toEqual([PASTED_ISSUE_URL, CODEX_SUBMIT_INPUT])

@@ -57,7 +57,7 @@ describe('agent draft paste content chunking', () => {
     await flushMicrotasks(20)
 
     const calls = testState.sendRuntimePtyInputVerified.mock.calls
-    expect(calls.at(0)).toEqual([{}, 'pty-1', '\x1b[200~'])
+    expect(calls.at(0)).toEqual([{}, 'pty-1', '\x1b[200~', 'driving'])
     expect(calls.at(-1)?.[2]).toBe('\x1b[201~')
     expect(
       calls
@@ -66,13 +66,21 @@ describe('agent draft paste content chunking', () => {
         .join('')
     ).toBe(content)
     for (const call of calls.slice(1, -1)) {
-      expect((call[2] as string).length).toBeLessThanOrEqual(AGENT_DRAFT_PASTE_CHUNK_MAX_BYTES)
+      expect(typeof call[2]).toBe('string')
+      if (typeof call[2] === 'string') {
+        expect(call[2].length).toBeLessThanOrEqual(AGENT_DRAFT_PASTE_CHUNK_MAX_BYTES)
+      }
     }
 
     await vi.advanceTimersByTimeAsync(POST_PASTE_SUBMIT_DELAY_MS)
 
     await expect(promise).resolves.toBe(true)
-    expect(testState.sendRuntimePtyInputVerified).toHaveBeenLastCalledWith({}, 'pty-1', '\r')
+    expect(testState.sendRuntimePtyInputVerified).toHaveBeenLastCalledWith(
+      {},
+      'pty-1',
+      '\r',
+      'driving'
+    )
   })
 
   it('normalizes multiline running-agent drafts like terminal paste', async () => {
@@ -84,7 +92,8 @@ describe('agent draft paste content chunking', () => {
     expect(testState.sendRuntimePtyInputVerified).toHaveBeenCalledWith(
       {},
       'pty-1',
-      '\x1b[200~line one\rline two\rline three\x1b[201~'
+      '\x1b[200~line one\rline two\rline three\x1b[201~',
+      'driving'
     )
     await vi.advanceTimersByTimeAsync(POST_PASTE_SUBMIT_DELAY_MS)
     await expect(promise).resolves.toBe(true)
@@ -111,13 +120,15 @@ describe('agent draft paste content chunking', () => {
       1,
       {},
       'pty-1',
-      '\x1b[200~'
+      '\x1b[200~',
+      'driving'
     )
     expect(testState.sendRuntimePtyInputVerified).toHaveBeenNthCalledWith(
       3,
       {},
       'pty-1',
-      '\x1b[201~'
+      '\x1b[201~',
+      'driving'
     )
     expect(testState.sendRuntimePtyInputVerified.mock.calls.some((call) => call[2] === '\r')).toBe(
       false
@@ -183,7 +194,7 @@ describe('agent draft paste content chunking', () => {
 
   it('yields during large accepted-size preflight before writing agent draft chunks', async () => {
     const content = 'x'.repeat(AGENT_DRAFT_PASTE_DIRECT_MAX_BYTES + 300 * 1024)
-    const promise = sendAgentDraftPasteContent({}, 'pty-1', content)
+    const promise = sendAgentDraftPasteContent({}, 'pty-1', content, 'driving')
 
     await flushMicrotasks(5)
     expect(testState.sendRuntimePtyInputVerified).not.toHaveBeenCalled()
@@ -191,13 +202,23 @@ describe('agent draft paste content chunking', () => {
     await vi.runOnlyPendingTimersAsync()
     await flushMicrotasks(10)
 
-    expect(testState.sendRuntimePtyInputVerified).toHaveBeenCalledWith({}, 'pty-1', '\x1b[200~')
+    expect(testState.sendRuntimePtyInputVerified).toHaveBeenCalledWith(
+      {},
+      'pty-1',
+      '\x1b[200~',
+      'driving'
+    )
     await expect(promise).resolves.toBe(true)
   })
 
   it('rejects oversized agent drafts before any PTY write', async () => {
     await expect(
-      sendAgentDraftPasteContent({}, 'pty-1', 'x'.repeat(AGENT_DRAFT_PASTE_MAX_BYTES + 1))
+      sendAgentDraftPasteContent(
+        {},
+        'pty-1',
+        'x'.repeat(AGENT_DRAFT_PASTE_MAX_BYTES + 1),
+        'driving'
+      )
     ).resolves.toBe(false)
 
     expect(testState.sendRuntimePtyInputVerified).not.toHaveBeenCalled()

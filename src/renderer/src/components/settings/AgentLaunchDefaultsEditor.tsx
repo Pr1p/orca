@@ -1,7 +1,6 @@
 import { useId, useState } from 'react'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
-import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
 import { parseAgentDefaultEnvDraft, stringifyAgentDefaultEnvDraft } from './agent-default-env-draft'
 import { SettingsSegmentedControl } from './SettingsFormControls'
@@ -35,6 +34,7 @@ export function AgentCommandOverrideInput({
       </span>
       <div className="flex items-center gap-2">
         <Input
+          variant="compact-mono"
           value={cmdDraft}
           onChange={(event) => setCmdDraft(event.target.value)}
           onBlur={commitCmd}
@@ -50,7 +50,7 @@ export function AgentCommandOverrideInput({
           }}
           placeholder={defaultCmd}
           spellCheck={false}
-          className="h-7 flex-1 font-mono text-xs"
+          className="flex-1"
         />
         {cmdOverride && (
           <Button
@@ -61,7 +61,7 @@ export function AgentCommandOverrideInput({
               onSaveOverride('')
               setCmdDraft(defaultCmd)
             }}
-            className="h-7 shrink-0 text-xs text-muted-foreground hover:text-foreground"
+            className="shrink-0"
           >
             {translate('auto.components.settings.AgentsPane.5200dac9da', 'Reset')}
           </Button>
@@ -90,6 +90,7 @@ export function AgentDefaultArgsInput({
       </span>
       <div className="flex items-center gap-2">
         <Input
+          variant="compact-mono"
           value={argsDraft}
           onChange={(event) => setArgsDraft(event.target.value)}
           onBlur={commitArgs}
@@ -108,7 +109,7 @@ export function AgentDefaultArgsInput({
             translate('auto.components.settings.AgentsPane.6f99bf5dd0', 'No default arguments')
           }
           spellCheck={false}
-          className="h-7 flex-1 font-mono text-xs"
+          className="flex-1"
         />
         {argsOverride !== defaultArgs && (
           <Button
@@ -119,7 +120,7 @@ export function AgentDefaultArgsInput({
               onSaveArgs(defaultArgs)
               setArgsDraft(defaultArgs)
             }}
-            className="h-7 shrink-0 text-xs text-muted-foreground hover:text-foreground"
+            className="shrink-0"
           >
             {translate('auto.components.settings.AgentsPane.5200dac9da', 'Reset')}
           </Button>
@@ -158,6 +159,7 @@ export function AgentDefaultEnvInput({
       </span>
       <div className="flex items-center gap-2">
         <Input
+          variant="compact-mono"
           value={envDraft}
           onChange={(event) => {
             setEnvDraft(event.target.value)
@@ -184,10 +186,7 @@ export function AgentDefaultEnvInput({
           spellCheck={false}
           aria-invalid={envDraftTooLarge || undefined}
           aria-describedby={envDraftTooLarge ? envDraftErrorId : undefined}
-          className={cn(
-            'h-7 flex-1 font-mono text-xs',
-            envDraftTooLarge && 'border-destructive/50 bg-destructive/5'
-          )}
+          className="flex-1"
         />
         {draftSeed !== defaultEnvText && (
           <Button
@@ -199,7 +198,7 @@ export function AgentDefaultEnvInput({
               setEnvDraft(defaultEnvText)
               setEnvDraftTooLarge(false)
             }}
-            className="h-7 shrink-0 text-xs text-muted-foreground hover:text-foreground"
+            className="shrink-0"
           >
             {translate('auto.components.settings.AgentsPane.5200dac9da', 'Reset')}
           </Button>

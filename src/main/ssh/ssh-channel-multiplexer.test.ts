@@ -536,7 +536,8 @@ describe('SshChannelMultiplexer', () => {
       mux.notifyWithSettlement('pty.data', { id: 'pty-1', data: 'x' }, settled)
 
       expect(settled).toHaveBeenCalledWith({
-        ok: false,
+        outcome: 'refused',
+        reason: 'transport_disposed',
         error: expect.objectContaining({
           message: 'SSH connection lost, reconnecting...',
           code: 'CONNECTION_LOST'
@@ -552,12 +553,6 @@ describe('SshChannelMultiplexer', () => {
 
       expect(disposeHandler).toHaveBeenCalledWith('connection_lost')
       expect(disposeHandler).toHaveBeenCalledTimes(1)
-    })
-
-    it('ignores notify after dispose', () => {
-      mux.dispose()
-      mux.notify('pty.data', { id: 'pty-1', data: 'x' })
-      // No writes should happen after the initial keepalive writes
     })
 
     it('reports isDisposed correctly', () => {
