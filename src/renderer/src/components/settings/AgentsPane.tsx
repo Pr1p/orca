@@ -72,6 +72,8 @@ export function AgentPermissionsSetting({
   mode: AgentPermissionMode
   onChange: (mode: Exclude<AgentPermissionMode, 'mixed'>) => void
 }): React.JSX.Element {
+  const mixedHintId = 'agent-permissions-mixed-hint'
+
   return (
     <section className="space-y-3">
       <SettingsSubsectionHeader
@@ -116,6 +118,7 @@ export function AgentPermissionsSetting({
               'auto.components.settings.AgentsPane.agentPermissions',
               'Agent Permissions'
             )}
+            ariaDescribedBy={mode === 'mixed' ? mixedHintId : undefined}
             size="sm"
             options={[
               {
@@ -134,7 +137,7 @@ export function AgentPermissionsSetting({
         }
       />
       {mode === 'mixed' ? (
-        <p className="text-xs text-muted-foreground">
+        <p id={mixedHintId} className="text-xs text-muted-foreground">
           {translate(
             'auto.components.settings.AgentsPane.agentPermissionsMixedHint',
             'Some agents have custom launch arguments, so permissions are mixed. Picking a mode applies it to the remaining agents.'
