@@ -1,29 +1,34 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AppState } from '@/store/types'
+import type { Tab } from '../../../../shared/tab-types'
 import { useAgentRowConversationName } from './use-agent-row-conversation-name'
 import type { DashboardAgentRow } from './useDashboardData'
 
-const storeState = vi.hoisted(() => ({
-  current: { settings: {}, tabsByWorktree: {} } as {
-    settings: Record<string, unknown>
-    tabsByWorktree: Record<string, unknown[]>
-    terminalLayoutsByTabId?: Record<string, unknown>
-    runtimePaneTitlesByTabId?: Record<string, unknown>
-  }
+type TestStoreState = {
+  settings: Record<string, unknown>
+  tabsByWorktree: Record<string, unknown[]>
+  unifiedTabsByWorktree?: Record<string, Tab[]>
+  terminalLayoutsByTabId?: Record<string, unknown>
+  runtimePaneTitlesByTabId?: Record<string, unknown>
+}
+
+const storeState = vi.hoisted<{ current: TestStoreState }>(() => ({
+  current: { settings: {}, tabsByWorktree: {}, unifiedTabsByWorktree: {} }
 }))
 
 // Why: the mocked selector makes the hook a pure function, so tests can call it
 // directly without mounting a component. The pane maps default to empty so each
 // test declares only the ones it exercises.
 vi.mock('@/store', () => ({
-  useAppStore: (selector: (state: AppState) => unknown) =>
+  useAppStore: (selector: (state: TestStoreState) => unknown) =>
     selector({
       terminalLayoutsByTabId: {},
       runtimePaneTitlesByTabId: {},
+      unifiedTabsByWorktree: {},
       ...storeState.current
-    } as unknown as AppState)
+    })
 }))
 
+/** Creates one active top-level agent row with stable defaults. */
 function makeAgent(overrides: Partial<DashboardAgentRow> = {}): DashboardAgentRow {
   return {
     paneKey: 'tab-1:leaf-1',
@@ -37,7 +42,7 @@ function makeAgent(overrides: Partial<DashboardAgentRow> = {}): DashboardAgentRo
 }
 
 beforeEach(() => {
-  storeState.current = { settings: {}, tabsByWorktree: {} }
+  storeState.current = { settings: {}, tabsByWorktree: {}, unifiedTabsByWorktree: {} }
 })
 
 describe('useAgentRowConversationName', () => {
@@ -147,6 +152,47 @@ describe('useAgentRowConversationName', () => {
       }
     }
     expect(useAgentRowConversationName(makeAgent())).toBe('Renamed later')
+  })
+
+  it('uses the unified native-session tab label when no terminal tab exists', () => {
+    storeState.current = {
+      settings: {},
+      tabsByWorktree: {},
+      unifiedTabsByWorktree: {
+        'wt-1': [
+          {
+            id: 'tab-1',
+            entityId: 'session-1',
+            groupId: 'group-1',
+            worktreeId: 'wt-1',
+            contentType: 'agent-session',
+            agentSessionAgent: 'claude',
+            label: 'Investigate native session labels',
+            customLabel: null,
+            color: null,
+            sortOrder: 0,
+            createdAt: 0
+          }
+        ]
+      }
+    }
+
+    expect(
+      useAgentRowConversationName(
+        makeAgent({
+          tab: {
+            id: 'tab-1',
+            ptyId: null,
+            worktreeId: 'wt-1',
+            customTitle: null,
+            title: '',
+            color: null,
+            sortOrder: 0,
+            createdAt: 0
+          }
+        })
+      )
+    ).toBe('Investigate native session labels')
   })
 
   // STA-2811 / #11069: both panes of a split tab showed one name that flipped to
