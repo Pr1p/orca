@@ -35,6 +35,13 @@ import { RetiredPaneSurfaceRegistry } from './retired-pane-surfaces'
 import { applyScrubSafeAgentEnvAliases } from '../shared/agent-hook-scrub-safe-env'
 import { addWslEnvKeys } from '../shared/wsl-env'
 import {
+  OPENCODE_STARTUP_PROMPT_SHA256_ENV,
+  OPENCODE_STARTUP_PROMPT_NONCE_ENV,
+  OPENCODE_STARTUP_PROMPT_ENDPOINT_ENV,
+  OPENCODE_STARTUP_PROMPT_BODY_ENV,
+  OPENCODE_STARTUP_PROMPT_SHELL_ENV
+} from '../shared/opencode-startup-prompt'
+import {
   ORCA_IMAGE_PROTOCOL_ENV,
   ORCA_IMAGE_PROTOCOL_VALUE
 } from '../shared/terminal-image-protocol'
@@ -42,6 +49,12 @@ import { SHELL_STARTUP_FEATURE_ENV } from '../main/shell-startup-features'
 import { DEFAULT_SSH_RELAY_GRACE_PERIOD_SECONDS } from '../shared/ssh-types'
 import { shouldUseShellReadyStartupDelivery } from '../shared/codex-startup-delivery'
 import { buildStartupCommandSubmission } from '../shared/startup-command-submission'
+import {
+  discardStagedStartupCommand,
+  stageStartupCommand,
+  startupStagingFailureNotice,
+  type StartupCommandStaging
+} from '../shared/startup-command-staging'
 import { resolveSetupAgentSequenceLaunchCommand } from '../shared/setup-agent-sequencing'
 import {
   isPathInsideOrEqual,
@@ -263,6 +276,8 @@ type ManagedPty = {
   gitCredentialPromptGuarded: boolean
   historyIsolationEnabled?: boolean
   startupCommand?: ManagedStartupCommand
+  /** Kept past delivery: the typed line may never run if the shell dies first. */
+  stagedStartupCommand?: StartupCommandStaging
   /** Whether this host armed the shell-ready marker for a renderer-delivered startup command.
    *  Kept off `startupCommand`, which is dropped once delivered; the client reads it from the
    *  spawn reply to skip waiting for a marker that will never come (fish, sh, Windows). */
@@ -343,6 +358,7 @@ function disposeManagedPty(managed: ManagedPty): void {
     return
   }
   managed.disposed = true
+  discardStagedStartupCommand(managed.stagedStartupCommand)
   // Why: clear the SIGKILL fallback timer so it can't fire pty.kill on an already-disposed instance.
   if (managed.killTimer) {
     clearTimeout(managed.killTimer)
@@ -1018,12 +1034,11 @@ export class PtyHandler {
     if (heldBytes) {
       managed.startupIngress?.accept(heldBytes)
     }
-    const submit = process.platform === 'win32' ? '\r' : '\n'
     // Why: only the shell-ready wrapper arms bracketed-paste; other shells use raw submit so ESC[200~ markers aren't echoed.
-    const payload = buildStartupCommandSubmission(startup.command, {
-      submit,
-      bracketedPasteSafe: startup.waitForShellReady
-    })
+    const payload = buildStartupCommandSubmission(
+      managed.stagedStartupCommand?.command ?? startup.command,
+      { bracketedPasteSafe: startup.waitForShellReady }
+    )
     managed.startupCommand = undefined
     managed.pty.write(payload)
   }
@@ -2043,6 +2058,16 @@ export class PtyHandler {
       envToDelete
     )
     delete spawnEnv.ORCA_OPENCODE_PLUGIN_API
+    // Relay input streams lack driving-input provenance, so native intent is unavailable.
+    for (const key of [
+      OPENCODE_STARTUP_PROMPT_SHA256_ENV,
+      OPENCODE_STARTUP_PROMPT_NONCE_ENV,
+      OPENCODE_STARTUP_PROMPT_ENDPOINT_ENV,
+      OPENCODE_STARTUP_PROMPT_BODY_ENV,
+      OPENCODE_STARTUP_PROMPT_SHELL_ENV
+    ]) {
+      delete spawnEnv[key]
+    }
     const openCodeCapabilities = await probeOpenCodeLaunchCapabilities({
       command,
       agent: launchAgent,
@@ -2214,11 +2239,28 @@ export class PtyHandler {
           }
         : {})
     }
+    if (managed.startupCommand?.providerDelivery && managed.startupCommand.command) {
+      managed.stagedStartupCommand = stageStartupCommand({
+        command: managed.startupCommand.command,
+        shellPath: shell,
+        orcaBuiltLine: launchAgent !== undefined
+      })
+      if (managed.stagedStartupCommand.failure) {
+        process.stderr.write(
+          `[pty-handler] Could not stage startup command for ${id}; typing it in full: ${managed.stagedStartupCommand.failure}\n`
+        )
+      }
+    }
     this.retiredIncarnations.delete(id)
     this.sourcePublication?.activate(id, managed.incarnationId, context)
     const sourceActivation =
       context && this.sourcePublication?.receivingActivation?.(id, context.clientId)
     this.wireAndStore(managed)
+    const stagingNotice =
+      managed.stagedStartupCommand && startupStagingFailureNotice(managed.stagedStartupCommand)
+    if (stagingNotice) {
+      managed.startupIngress?.accept(stagingNotice)
+    }
     if (context?.isStale() && !params.agentSessionEnsure && !params.agentSessionCreateOperationId) {
       // Why: if the client reconnected while pty.spawn was in flight, the
       // response is discarded and no renderer can own this PTY. Shut it down

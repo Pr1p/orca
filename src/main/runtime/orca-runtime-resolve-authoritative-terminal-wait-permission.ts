@@ -16,9 +16,29 @@ import { isWindowsAbsolutePathLike } from '../../shared/cross-platform-path'
 import type { TuiAgent } from '../../shared/tui-agent'
 import type { TerminalAgent } from '../../shared/terminal-agent'
 import type { AgentPromptActivity } from './agent-prompt-submission-verification'
+import { hasExplicitIdleTitle } from './tui-idle-evidence'
 import { readTuiIdleHookTurn, type TuiIdleHookTurn } from './tui-idle-hook-lane'
 
 export class OrcaRuntimeWithResolveAuthoritativeTerminalWaitPermission extends OrcaRuntimeWithAgentPromptRequestCorrelation {
+  readOpenCodeStartupPromptOwner(ptyId: string, incarnationId: string, launchToken: string) {
+    const pty = this.ptysById.get(ptyId)
+    if (!pty || pty.incarnationId !== incarnationId) {
+      return null
+    }
+    // The runtime launch route admits identity immediately after low-level spawn returns.
+    if (pty.launchToken === null && pty.launchAgent === null && pty.launchIncarnationId === null) {
+      return 'pending' as const
+    }
+    if (
+      pty.launchIncarnationId !== incarnationId ||
+      pty.launchToken !== launchToken ||
+      (pty.launchAgent !== 'opencode' && pty.launchAgent !== 'opencode2')
+    ) {
+      return null
+    }
+    return this.terminalRunFacts.read(ptyId, incarnationId)
+  }
+
   protected resolveAuthoritativeTerminalWaitPermission(
     terminal: RuntimeTerminalAgentStatusSnapshot,
     explicitStatus: { status: AgentStatus; updatedAt: number } | null,
@@ -77,8 +97,7 @@ export class OrcaRuntimeWithResolveAuthoritativeTerminalWaitPermission extends O
   /** The pane's main-agent turn from the hook server's store, for tui-idle's hook lane. */
   protected readTuiIdleHookTurnForPty(ptyId: string, agent: TuiAgent): TuiIdleHookTurn | null {
     const pty = this.ptysById.get(ptyId)
-    const hookRows = this.getAgentStatusSnapshotFn?.()
-    if (!pty || !hookRows) {
+    if (!pty) {
       return null
     }
     const handles = this.getExistingTerminalHandlesForPtyId(ptyId)
@@ -86,11 +105,23 @@ export class OrcaRuntimeWithResolveAuthoritativeTerminalWaitPermission extends O
     if (pty.paneKey) {
       paneKeys.add(pty.paneKey)
     }
+    const readPane = this.getAgentStatusSnapshotForPaneFn
+    const hookRows = readPane
+      ? [...new Set([...paneKeys].flatMap((key) => readPane(key)))]
+      : this.getAgentStatusSnapshotFn?.()
+    if (!hookRows) {
+      return null
+    }
     return readTuiIdleHookTurn({
       agent,
       handles,
       paneKeys,
       hookRows,
+      connectionId: pty.connectionId,
+      wslDistro: pty.wslDistro,
+      launchToken: pty.launchToken,
+      titleObservedAtEpochMs: pty.lastOscTitleEpochMs,
+      hasExplicitIdleTitle: hasExplicitIdleTitle(pty),
       respawnedAt: this.agentPromptExplicitStatusFloorByPtyId.get(ptyId),
       lastInputAt: this.terminalRunFacts.readLastInputAt(ptyId),
       resolveBlockedText: (state, row) =>
