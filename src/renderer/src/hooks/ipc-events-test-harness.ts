@@ -129,7 +129,6 @@ export async function loadIpcEventsHarness(
   }))
   vi.doMock('@/lib/floating-workspace-terminal-actions', () => ({
     createFloatingWorkspaceTerminalTab: vi.fn(),
-    isEmptyFloatingWorkspacePanelVisible: () => false,
     isFloatingWorkspacePanelFocused: () => false
   }))
   vi.doMock('@/runtime/web-runtime-session', () => ({
@@ -242,8 +241,7 @@ export async function loadIpcEventsHarness(
         }),
         mobile: createApiNamespaceStub({
           consumePendingUnpairedDeviceAuthFailure: () => Promise.resolve(false)
-        }),
-        remoteWorkspace: createApiNamespaceStub({ clientId: () => Promise.resolve(null) })
+        })
       } as Record<string, unknown>,
       { get: (target, prop: string) => target[prop] ?? createApiNamespaceStub() }
     )
