@@ -92,9 +92,33 @@ vi.mock('../gitea/client', () => ({
 }))
 
 import { registerPreflightHandlers } from './preflight'
+import { detectAgentCommandsOnHost } from '../preflight/agent-detection'
 import { resetPreflightMocks, type HandlerMap } from './preflight-test-harness'
 
 describe('preflight', () => {
+  it('resolves exact Qoder command labels on the SSH host using the existing request', async () => {
+    const request = vi.fn().mockResolvedValue({ agents: ['qoder', 'unrelated'] })
+    getActiveMultiplexerMock.mockReturnValue({ isDisposed: () => false, request })
+    await expect(
+      detectAgentCommandsOnHost(['qodercli', 'qoder'], { connectionId: 'ssh-qoder' })
+    ).resolves.toEqual(new Set(['qoder']))
+    expect(request).toHaveBeenCalledWith('preflight.detectAgents', {
+      commands: [
+        { id: 'qodercli', cmd: 'qodercli' },
+        { id: 'qoder', cmd: 'qoder' }
+      ]
+    })
+    expect(isCommandOnLocalPathMock).not.toHaveBeenCalled()
+  })
+
+  it('refuses command selection after SSH contact loss without probing the local host', async () => {
+    getActiveMultiplexerMock.mockReturnValue(null)
+    await expect(
+      detectAgentCommandsOnHost(['qodercli', 'qoder'], { connectionId: 'ssh-qoder' })
+    ).rejects.toThrow('execution host connection')
+    expect(isCommandOnLocalPathMock).not.toHaveBeenCalled()
+  })
+
   const originalPlatform = process.platform
   const handlers: HandlerMap = {}
 
@@ -147,17 +171,20 @@ describe('preflight', () => {
     })
   })
 
-  it('returns no remote agents when the SSH connection is unavailable', async () => {
+  // Why (#25523): an empty list would be cached as "no agents installed" on that host.
+  it('rejects instead of listing no agents when the SSH connection is unavailable', async () => {
     getActiveMultiplexerMock.mockReturnValue(null)
 
     registerPreflightHandlers()
 
     await expect(
-      handlers['preflight:detectRemoteAgents'](undefined, { connectionId: 'ssh-1' })
-    ).resolves.toEqual([])
+      handlers['preflight:detectRemoteAgents'](undefined, {
+        connectionId: 'ssh-1'
+      })
+    ).rejects.toThrow('SSH host is not connected')
   })
 
-  it('returns no remote agents when the SSH connection is disposed', async () => {
+  it('rejects instead of listing no agents when the SSH connection is disposed', async () => {
     const request = vi.fn()
     getActiveMultiplexerMock.mockReturnValue({
       isDisposed: () => true,
@@ -167,8 +194,10 @@ describe('preflight', () => {
     registerPreflightHandlers()
 
     await expect(
-      handlers['preflight:detectRemoteAgents'](undefined, { connectionId: 'ssh-1' })
-    ).resolves.toEqual([])
+      handlers['preflight:detectRemoteAgents'](undefined, {
+        connectionId: 'ssh-1'
+      })
+    ).rejects.toThrow('SSH host is not connected')
     expect(request).not.toHaveBeenCalled()
   })
 

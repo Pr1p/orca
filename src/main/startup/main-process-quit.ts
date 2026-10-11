@@ -3,7 +3,7 @@ import { closeAllWatchers } from '../ipc/filesystem-watcher'
 import { disposeWorktreeBaseDirectoryWatchers } from '../ipc/worktree-base-directory-watcher'
 import { stopFolderRepoGitUpgradeWatch } from '../ipc/folder-repo-git-upgrade'
 import { killAllPty } from '../ipc/pty'
-import { disconnectDaemon, shutdownDaemon } from '../daemon/daemon-init'
+import { disconnectDaemon, shutdownDaemon } from '../daemon/daemon-provider-state'
 import { beginSshShutdown } from '../ipc/ssh-shutdown-drain'
 import { agentHookServer } from '../agent-hooks/server'
 import { wslHookRelayManager } from '../agent-hooks/wsl-hook-relay-manager'
@@ -214,7 +214,7 @@ function installWillQuitHandler(): void {
         return
       }
       try {
-        await finalStore.flushFinalOrThrowAsync({ exportJsonCompatibility: true })
+        await finalStore.flushFinalOrThrowAsync()
         await finalStore.freezeWritesAsync()
         state.profileStateAdmission?.release()
         state.profileStateAdmission = undefined

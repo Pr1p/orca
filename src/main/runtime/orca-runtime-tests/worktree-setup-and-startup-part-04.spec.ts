@@ -1,3 +1,4 @@
+import { getDefaultWorkspaceSession } from '../../../shared/constants'
 import { describe, expect, it, vi } from 'vitest'
 import {
   OrcaRuntimeService,
@@ -7,13 +8,19 @@ import {
   createSetupRunnerScript,
   detectInstalledAgentsWithShellPathHydrationMock,
   detectRemoteAgentsMock,
+  electronMocks,
   ensurePathWithinWorkspaceMock,
   getEffectiveHooks,
   listWorktrees,
   shouldRunSetupForCreate
 } from '../orca-runtime-test-mocks.spec'
 import type { WorktreeMeta } from '../orca-runtime-test-mocks.spec'
-import { TEST_REPO_ID, makeWorktreeMeta, store } from '../orca-runtime-test-fixtures.spec'
+import {
+  TEST_REPO_ID,
+  makeWorktreeMeta,
+  store,
+  makeRuntimeStoreWithWorkspaceSession
+} from '../orca-runtime-test-fixtures.spec'
 
 describe('OrcaRuntimeService', () => {
   it('sends follow-up prompts for CLI-created stdin-after-start startup agents', async () => {
@@ -232,7 +239,7 @@ describe('OrcaRuntimeService', () => {
   it('honors split setup placement for opted-in local startup-draft worktrees', async () => {
     const metaById: Record<string, WorktreeMeta> = {}
     const runtimeStore = {
-      ...store,
+      ...makeRuntimeStoreWithWorkspaceSession(getDefaultWorkspaceSession()).runtimeStore,
       getSettings: () => ({
         ...store.getSettings(),
         defaultTuiAgent: 'codex' as const,
@@ -579,6 +586,8 @@ describe('OrcaRuntimeService', () => {
     })
     runtime.attachWindow(1)
 
+    runtime.markGraphReady(1)
+    electronMocks.BrowserWindow.fromId.mockReturnValue({ isDestroyed: () => false })
     computeWorktreePathMock.mockReturnValue('/tmp/workspaces/runtime-blank-draft')
     ensurePathWithinWorkspaceMock.mockReturnValue('/tmp/workspaces/runtime-blank-draft')
     vi.mocked(listWorktrees).mockResolvedValue([
