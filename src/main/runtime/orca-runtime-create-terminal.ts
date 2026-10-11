@@ -121,8 +121,9 @@ export class OrcaRuntimeWithCreateTerminal extends OrcaRuntimeWithTerminalCreate
         }
         let result: Awaited<ReturnType<NonNullable<dependencies.RuntimePtyController['spawn']>>>
         try {
-          launchOpts.onPtySpawnDispatched?.()
-          result = await this.ptyController.spawn({
+          const { launchAgent } = launchOpts
+          launchOpts.onPtySpawnDispatched?.({ launchConfig: effectiveLaunchConfig, launchAgent })
+          result = await dependencies.spawnInAdmittedPane(this.store, this.ptyController, {
             cols: 120,
             rows: 40,
             cwd,
@@ -163,11 +164,12 @@ export class OrcaRuntimeWithCreateTerminal extends OrcaRuntimeWithTerminalCreate
             ...(launchOpts.agentSessionCreateOperationId
               ? { agentSessionCreateOperationId: launchOpts.agentSessionCreateOperationId }
               : {}),
-            ...(launchOpts.signal ? { signal: launchOpts.signal } : {}),
+            ...dependencies.callerSpawnScope(launchOpts),
             ...(launchOpts.onPtySpawnCommitted
               ? { onPtySpawnCommitted: reportPtySpawnCommitted }
               : {}),
             ...(adoptedBeforeLaunch ? { adoptedStablePane: adoptedBeforeLaunch } : {}),
+            ...dependencies.newTabIn(launchOpts),
             ...(launchOpts.sessionId ? { sessionId: launchOpts.sessionId } : {}),
             ...(!adoptedBeforeLaunch && launchOpts.isNewSession ? { isNewSession: true } : {}),
             ...dependencies.BACKGROUND_TERMINAL_SPAWN_FLAGS

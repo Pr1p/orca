@@ -18,6 +18,7 @@ import { ReplyParams, TaskCreateParams, TaskListParams, TaskUpdateParams } from 
 export const ORCHESTRATION_MESSAGE_METHODS = [
   defineMethod({
     name: 'orchestration.reply',
+    permission: 'workspace',
     params: ReplyParams,
     handler: async (
       params,
@@ -135,6 +136,7 @@ export const ORCHESTRATION_MESSAGE_METHODS = [
 
   defineMethod({
     name: 'orchestration.taskCreate',
+    permission: 'workspace',
     params: TaskCreateParams,
     handler: (
       params,
@@ -183,6 +185,7 @@ export const ORCHESTRATION_MESSAGE_METHODS = [
 
   defineMethod({
     name: 'orchestration.taskList',
+    permission: 'workspace',
     params: TaskListParams,
     handler: (
       params,
@@ -225,6 +228,7 @@ export const ORCHESTRATION_MESSAGE_METHODS = [
 
   defineMethod({
     name: 'orchestration.taskUpdate',
+    permission: 'workspace',
     params: TaskUpdateParams,
     handler: (
       params,

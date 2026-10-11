@@ -6,6 +6,7 @@ import { InboxParams } from '../schemas'
 
 export const ORCHESTRATION_INBOX_METHOD = defineMethod({
   name: 'orchestration.inbox',
+  permission: 'workspace',
   params: InboxParams,
   handler: (
     params,
