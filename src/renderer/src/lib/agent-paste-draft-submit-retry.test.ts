@@ -140,10 +140,11 @@ describe('post-paste submit retry Enter', () => {
 
     const promise = startCodexSubmit()
     await signalCodexComposerReady()
-    await vi.advanceTimersByTimeAsync(POST_PASTE_SUBMIT_DELAY_MS + CODEX_SUBMIT_RETRY_DELAY_MS)
+    await vi.advanceTimersByTimeAsync(POST_PASTE_SUBMIT_DELAY_MS)
+    await vi.advanceTimersByTimeAsync(CODEX_SUBMIT_RETRY_DELAY_MS)
 
     await expect(promise).resolves.toBe(true)
-    expect(submitWrites('\x1b[13;5u]')).toHaveLength(2)
+    expect(submitWrites('\x1b[13;5u')).toHaveLength(2)
   })
 
   it('falls back to Enter when Ctrl+Enter is configured without kitty keyboard reporting', async () => {

@@ -70,14 +70,16 @@ export type AgentCatalogRowProps = {
   cmdOverride: string | undefined
   argsOverride: string
   envOverride: Record<string, string>
-  postPasteSubmitInput: AgentPostPasteSubmitInput
   onSetDefault: () => void
   onSetEnabled: (enabled: boolean) => void
-  onSaveOverride: (value: string) => void
-  onSaveArgs: (value: string) => void
+  onSaveOverride: (value: string) => void | Promise<void>
+  onSaveArgs: (value: string) => void | Promise<void>
   onSaveEnv: (value: Record<string, string>) => void
-  onSavePostPasteSubmitInput: (value: AgentPostPasteSubmitInput) => void
+  postPasteSubmitInput?: AgentPostPasteSubmitInput
+  onSavePostPasteSubmitInput?: (value: AgentPostPasteSubmitInput) => void
   sessionSourceHome?: AgentSessionSourceHomeControl
+  environmentNames?: readonly string[]
+  environmentEditor?: React.ReactNode
 }
 
 export function AgentCatalogRow({
@@ -93,16 +95,18 @@ export function AgentCatalogRow({
   cmdOverride,
   argsOverride,
   envOverride,
-  postPasteSubmitInput,
   onSetDefault,
   onSetEnabled,
   onSaveOverride,
   onSaveArgs,
   onSaveEnv,
+  postPasteSubmitInput,
   onSavePostPasteSubmitInput,
-  sessionSourceHome
+  sessionSourceHome,
+  environmentNames,
+  environmentEditor
 }: AgentCatalogRowProps): React.JSX.Element {
-  const envSummary = stringifyAgentDefaultEnvDraft(envOverride)
+  const envSummary = environmentNames?.join(' ') ?? stringifyAgentDefaultEnvDraft(envOverride)
   const defaultEnvSummary = stringifyAgentDefaultEnvDraft(defaultEnv)
   const [cmdOpen, setCmdOpen] = useState(
     Boolean(cmdOverride) || argsOverride !== defaultArgs || envSummary !== defaultEnvSummary
@@ -155,7 +159,7 @@ export function AgentCatalogRow({
                     ? translate('auto.components.settings.AgentsPane.d7625cf8b2', 'Default agent')
                     : translate('auto.components.settings.AgentsPane.5f986a9b92', 'Set as default')
                 }
-                className="w-full"
+                className="h-7 w-full justify-center gap-1 text-xs"
               >
                 {isDefault && <Check className="size-3" />}
                 {isDefault
@@ -182,7 +186,7 @@ export function AgentCatalogRow({
               <Button
                 type="button"
                 variant="ghost"
-                size="icon-xs"
+                size="icon-sm"
                 onClick={() => setCmdOpen((previous) => !previous)}
                 aria-label={
                   cmdOpen
@@ -195,6 +199,7 @@ export function AgentCatalogRow({
                         'Expand command override'
                       )
                 }
+                className="size-7 text-muted-foreground hover:text-foreground"
               >
                 <ChevronDown
                   className={cn('size-3.5 transition-transform', cmdOpen && 'rotate-180')}
@@ -221,22 +226,25 @@ export function AgentCatalogRow({
               onSaveArgs={onSaveArgs}
             />
           </div>
-          {(defaultEnvSummary || envSummary) && (
+          {environmentEditor ??
+            ((defaultEnvSummary || envSummary) && (
+              <div className="mt-2">
+                <AgentDefaultEnvInput
+                  key={`${agentId}:${envSummary}`}
+                  defaultEnv={defaultEnv}
+                  envOverride={envOverride}
+                  onSaveEnv={onSaveEnv}
+                />
+              </div>
+            ))}
+          {postPasteSubmitInput && onSavePostPasteSubmitInput && (
             <div className="mt-2">
-              <AgentDefaultEnvInput
-                key={`${agentId}:${envSummary}`}
-                defaultEnv={defaultEnv}
-                envOverride={envOverride}
-                onSaveEnv={onSaveEnv}
+              <AgentPostPasteSubmitInputControl
+                value={postPasteSubmitInput}
+                onSave={onSavePostPasteSubmitInput}
               />
             </div>
           )}
-          <div className="mt-2">
-            <AgentPostPasteSubmitInputControl
-              value={postPasteSubmitInput}
-              onSave={onSavePostPasteSubmitInput}
-            />
-          </div>
           {sessionSourceHome && (
             <div className="mt-2">
               <AgentSessionSourceHomeInput

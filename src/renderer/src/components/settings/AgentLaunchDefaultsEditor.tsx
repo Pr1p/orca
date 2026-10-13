@@ -1,9 +1,11 @@
 import { useId, useState } from 'react'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
+import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
 import { parseAgentDefaultEnvDraft, stringifyAgentDefaultEnvDraft } from './agent-default-env-draft'
 import { SettingsSegmentedControl } from './SettingsFormControls'
+import { useAgentLaunchFieldWrite } from './use-agent-launch-field-write'
 import type { AgentPostPasteSubmitInput } from '../../../../shared/tui-agent-post-paste-submit'
 
 export function AgentCommandOverrideInput({
@@ -13,17 +15,21 @@ export function AgentCommandOverrideInput({
 }: {
   defaultCmd: string
   cmdOverride: string | undefined
-  onSaveOverride: (value: string) => void
+  onSaveOverride: (value: string) => void | Promise<void>
 }): React.JSX.Element {
   const draftSeed = cmdOverride ?? defaultCmd
   const [cmdDraft, setCmdDraft] = useState(draftSeed)
+  const { pending, write } = useAgentLaunchFieldWrite()
   const commitCmd = (): void => {
     const trimmed = cmdDraft.trim()
     if (!trimmed || trimmed === defaultCmd) {
-      onSaveOverride('')
-      setCmdDraft(defaultCmd)
+      write(
+        '',
+        () => onSaveOverride(''),
+        () => setCmdDraft(defaultCmd)
+      )
     } else {
-      onSaveOverride(trimmed)
+      write(trimmed, () => onSaveOverride(trimmed))
     }
   }
 
@@ -34,8 +40,8 @@ export function AgentCommandOverrideInput({
       </span>
       <div className="flex items-center gap-2">
         <Input
-          variant="compact-mono"
           value={cmdDraft}
+          readOnly={pending}
           onChange={(event) => setCmdDraft(event.target.value)}
           onBlur={commitCmd}
           onKeyDown={(event) => {
@@ -50,7 +56,7 @@ export function AgentCommandOverrideInput({
           }}
           placeholder={defaultCmd}
           spellCheck={false}
-          className="flex-1"
+          className="h-7 flex-1 font-mono text-xs"
         />
         {cmdOverride && (
           <Button
@@ -58,10 +64,13 @@ export function AgentCommandOverrideInput({
             variant="ghost"
             size="xs"
             onClick={() => {
-              onSaveOverride('')
-              setCmdDraft(defaultCmd)
+              write(
+                '',
+                () => onSaveOverride(''),
+                () => setCmdDraft(defaultCmd)
+              )
             }}
-            className="shrink-0"
+            className="h-7 shrink-0 text-xs text-muted-foreground hover:text-foreground"
           >
             {translate('auto.components.settings.AgentsPane.5200dac9da', 'Reset')}
           </Button>
@@ -78,10 +87,14 @@ export function AgentDefaultArgsInput({
 }: {
   defaultArgs: string
   argsOverride: string
-  onSaveArgs: (value: string) => void
+  onSaveArgs: (value: string) => void | Promise<void>
 }): React.JSX.Element {
   const [argsDraft, setArgsDraft] = useState(argsOverride)
-  const commitArgs = (): void => onSaveArgs(argsDraft.trim())
+  const { pending, write } = useAgentLaunchFieldWrite()
+  const commitArgs = (): void => {
+    const value = argsDraft.trim()
+    write(value, () => onSaveArgs(value))
+  }
 
   return (
     <div className="flex flex-col gap-1">
@@ -90,8 +103,8 @@ export function AgentDefaultArgsInput({
       </span>
       <div className="flex items-center gap-2">
         <Input
-          variant="compact-mono"
           value={argsDraft}
+          readOnly={pending}
           onChange={(event) => setArgsDraft(event.target.value)}
           onBlur={commitArgs}
           onKeyDown={(event) => {
@@ -109,7 +122,7 @@ export function AgentDefaultArgsInput({
             translate('auto.components.settings.AgentsPane.6f99bf5dd0', 'No default arguments')
           }
           spellCheck={false}
-          className="flex-1"
+          className="h-7 flex-1 font-mono text-xs"
         />
         {argsOverride !== defaultArgs && (
           <Button
@@ -117,10 +130,13 @@ export function AgentDefaultArgsInput({
             variant="ghost"
             size="xs"
             onClick={() => {
-              onSaveArgs(defaultArgs)
-              setArgsDraft(defaultArgs)
+              write(
+                defaultArgs,
+                () => onSaveArgs(defaultArgs),
+                () => setArgsDraft(defaultArgs)
+              )
             }}
-            className="shrink-0"
+            className="h-7 shrink-0 text-xs text-muted-foreground hover:text-foreground"
           >
             {translate('auto.components.settings.AgentsPane.5200dac9da', 'Reset')}
           </Button>
@@ -159,7 +175,6 @@ export function AgentDefaultEnvInput({
       </span>
       <div className="flex items-center gap-2">
         <Input
-          variant="compact-mono"
           value={envDraft}
           onChange={(event) => {
             setEnvDraft(event.target.value)
@@ -186,7 +201,10 @@ export function AgentDefaultEnvInput({
           spellCheck={false}
           aria-invalid={envDraftTooLarge || undefined}
           aria-describedby={envDraftTooLarge ? envDraftErrorId : undefined}
-          className="flex-1"
+          className={cn(
+            'h-7 flex-1 font-mono text-xs',
+            envDraftTooLarge && 'border-destructive/50 bg-destructive/5'
+          )}
         />
         {draftSeed !== defaultEnvText && (
           <Button
@@ -198,7 +216,7 @@ export function AgentDefaultEnvInput({
               setEnvDraft(defaultEnvText)
               setEnvDraftTooLarge(false)
             }}
-            className="shrink-0"
+            className="h-7 shrink-0 text-xs text-muted-foreground hover:text-foreground"
           >
             {translate('auto.components.settings.AgentsPane.5200dac9da', 'Reset')}
           </Button>
@@ -212,44 +230,6 @@ export function AgentDefaultEnvInput({
           )}
         </p>
       )}
-    </div>
-  )
-}
-
-export function AgentPostPasteSubmitInputControl({
-  value,
-  onSave
-}: {
-  value: AgentPostPasteSubmitInput
-  onSave: (value: AgentPostPasteSubmitInput) => void
-}): React.JSX.Element {
-  return (
-    <div className="flex flex-col gap-1">
-      <span className="text-xs text-muted-foreground">
-        {translate('auto.components.settings.AgentsPane.postPasteSubmit', 'Paste-submit key')}
-      </span>
-      <SettingsSegmentedControl<AgentPostPasteSubmitInput>
-        value={value}
-        onChange={onSave}
-        ariaLabel={translate(
-          'auto.components.settings.AgentsPane.postPasteSubmit',
-          'Paste-submit key'
-        )}
-        size="sm"
-        options={[
-          {
-            value: 'enter',
-            label: translate('auto.components.settings.AgentsPane.postPasteSubmitEnter', 'Enter')
-          },
-          {
-            value: 'ctrl-enter',
-            label: translate(
-              'auto.components.settings.AgentsPane.postPasteSubmitCtrlEnter',
-              'Ctrl+Enter'
-            )
-          }
-        ]}
-      />
     </div>
   )
 }

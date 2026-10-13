@@ -15,7 +15,7 @@ import {
 } from '../../shared/orcad-managed-runtime'
 import { getManagedOrcadFenceEnvironmentId } from '../../shared/managed-orcad-ssh-owner'
 import { runTargetLifecycle } from '../ipc/ssh-target-lifecycle-queue'
-import { materializeOrcadArtifact } from './orcad-artifact-materializer'
+import { materializeOrcadArtifact } from '../orcad/orcad-artifact-materializer'
 import {
   closeOrcadManagedTunnel,
   ensureOrcadManagedTunnel,
@@ -25,16 +25,16 @@ import { recoverInterruptedOrcadActivation } from './orcad-activation-recovery'
 import { readOrcadActivationRecord } from './orcad-activation-record-store'
 import { resolveOrcadRemoteContext } from './orcad-remote-context'
 import { deployOrcad } from './orcad-remote-deploy'
-import { refuseOrcadHostDowngrade } from './orcad-host-version-admission'
+import { sshOrcadHostTransport } from './orcad-ssh-host-transport'
 import { ORCAD_ACTIVATION_POLICY_REFUSED_CODE } from './orcad-installed-activation'
 import { pruneManagedOrcadVersions } from './orcad-managed-version-gc'
 import { tunneledOrcadPairingCode } from './orcad-tunneled-pairing'
-import { hasRegisteredDirectSshAuthority } from './ssh-target-registry'
 import { resolveOrcadMigrationFence } from './orcad-migration-source-fence'
 import type { SshTarget } from '../../shared/ssh-types'
 import { deployedOrcadTunnelChecks } from './orcad-managed-tunnel-identity'
 import {
   isForceableOrcadDeferral,
+  managedOrcadDeployPolicy,
   managedOrcadSlot,
   probeManagedOrcadReadiness,
   requireManagedOrcadInfrastructure
@@ -66,9 +66,6 @@ export async function createManagedOrcadEnvironment(
     if (environments.some((entry) => entry.id !== environmentId && entry.name === args.name)) {
       throw new Error(`A server named "${args.name}" already exists.`)
     }
-    if (hasRegisteredDirectSshAuthority(args.sshTargetId)) {
-      throw new Error('Disconnect this SSH host before converting it to a managed Orca server.')
-    }
     const current = targetStore.getTarget(args.sshTargetId)
     if (args.migration) {
       assertMigrationFence(userDataPath, current, environmentId, args.name)
@@ -91,7 +88,11 @@ export async function createManagedOrcadEnvironment(
     let environmentRegistered = false
     try {
       const connection = await connectionManager.connect(claimed)
-      let context = await resolveOrcadRemoteContext(claimed, connection, args.signal)
+      let context = await resolveOrcadRemoteContext(
+        claimed,
+        sshOrcadHostTransport(connection),
+        args.signal
+      )
       const slot = managedOrcadSlot(context, ORCAD_MANAGED_REMOTE_PORT, args.signal)
       const recovery = await recoverInterruptedOrcadActivation(slot)
       if (recovery.outcome === 'pending' || recovery.outcome === 'refused') {
@@ -122,22 +123,9 @@ export async function createManagedOrcadEnvironment(
         conn: connection,
         localOrcadDir,
         target: context.serverTarget,
-        // Why unknown when a version is active: only the daemon can count its sessions, and
-        // a deploy that guessed zero would restart over live terminals.
-        census: context.activationRecord.active
-          ? { liveSessions: null, startedSinceActivation: null, daemonProtocolVersion: null }
-          : { liveSessions: 0, startedSinceActivation: 0, daemonProtocolVersion: null },
-        censusRecord: context.activationRecord,
+        ...managedOrcadDeployPolicy(context, appVersion, args.force),
         force: args.force,
-        appVersion,
-        // Why: a host another desktop stopped may hold state its newer build migrated, and this
-        // path has no linked record to check first, so only the fenced read can refuse it.
-        // An explicit force runs this version anyway, as `environment update --force` does.
-        admitRecord: (record, candidateVersion) =>
-          !args.force && refuseOrcadHostDowngrade(record, candidateVersion, appVersion)
-            ? `Orca ${record.activeAppVersion} last ran this host's server, newer than this ` +
-              `Orca (${appVersion}). Update Orca to start it.`
-            : null
+        appVersion
       })
       if (deployResult.outcome === 'installed-not-activated') {
         return {
