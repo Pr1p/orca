@@ -6,7 +6,6 @@ import {
   deferPtyShutdownExit,
   isHostPtySleepPending
 } from '../pty-shutdown-exit-deferral'
-import { replayIntoTerminal } from '../replay-guard'
 import { POST_REPLAY_MODE_RESET } from '../../../../../shared/terminal-mode-reset-profiles'
 import { isProvenProcessExit } from '../../../../../shared/terminal-exit-cause'
 import { getProviderSessionClaimKey } from '@/lib/sleeping-agent-pane-ownership'
@@ -82,7 +81,7 @@ export function installPtyExitHibernate(session: ConnectPanePtySession): void {
 
   // Why: the transport's own exit handler (pty-transport.ts) normally makes
   // onExit run-at-most-once by clearing connected/ptyId + unregistering BEFORE
-  // calling it. reconcileIfSessionDead drives onExit directly (bypassing that),
+  // calling it. reconcileIfSessionMissing drives onExit directly (bypassing that),
   // so this guards the body so reconcile and any racing real/synthetic pty:exit
   // for the same id close the pane exactly once. Scoped to the exiting ptyId
   // (not a bare boolean): an intentional suppressed restart keeps the pane
@@ -225,9 +224,6 @@ export function installPtyExitHibernate(session: ConnectPanePtySession): void {
     if (!isUnverifiedExit) {
       session.clearPanePtyFitBinding()
     }
-    // Why: the negotiating application died with its PTY; any replacement
-    // session starts with kitty keyboard flags at zero.
-    session.kittyKeyboardModes.reset()
     const isSuppressedExit =
       session.deps.consumeSuppressedPtyExit(ptyId) ||
       preserveRendererBinding ||
@@ -272,14 +268,7 @@ export function installPtyExitHibernate(session: ConnectPanePtySession): void {
         // frame still has mouse-tracking/bracketed-paste armed, which silently
         // eats every click and keystroke against a dead transport — disarm the
         // modes now and arm the reveal-time wake.
-        replayIntoTerminal(session.pane, session.deps.replayingPanesRef, POST_REPLAY_MODE_RESET, {
-          breadcrumbIdentity: {
-            tabId: session.deps.tabId,
-            worktreeId: session.deps.worktreeId,
-            ptyId
-          },
-          shouldRefreshViewportSynchronously: session.shouldRefreshForegroundSynchronously
-        })
+        session.writeInputModeGround(POST_REPLAY_MODE_RESET)
         session.hibernatedWakeTarget = { ptyId, record: sleepingRecordEntry.record }
         const pendingWakeMatches =
           session.pendingHibernatedWakeTarget?.ptyId === ptyId &&
@@ -302,8 +291,7 @@ export function installPtyExitHibernate(session: ConnectPanePtySession): void {
       return
     }
     session.manager.setPaneGpuRendering(session.pane.id, true)
-    const failedLocalProcess =
-      !session.connectionId && session.runtimeEnvironmentId === null && exitCode !== 0
+    const failedLocalProcess = session.runtimeEnvironmentId === null && exitCode !== 0
     if (failedLocalProcess && session.deps.onPaneProcessDied) {
       const gitBashConsoleCapacityFailure = processExitState.detector.detected()
       session.deps.onPaneProcessDied({
