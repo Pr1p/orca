@@ -31,7 +31,7 @@ import {
 } from '../../../../shared/tui-agent-launch-defaults'
 import {
   applyAgentPermissionMode,
-  resolveAgentPermissionModeSummary,
+  resolveAgentPermissionControlState,
   type AgentPermissionMode
 } from '../../../../shared/tui-agent-permissions'
 import { getSettingOwnershipSummary } from './setting-ownership'
@@ -67,12 +67,15 @@ const enqueueAgentAvailabilityUpdate = createAgentAvailabilityUpdateQueue()
 
 export function AgentPermissionsSetting({
   mode,
+  hasCustomOverrides = false,
   onChange
 }: {
   mode: AgentPermissionMode
+  hasCustomOverrides?: boolean
   onChange: (mode: Exclude<AgentPermissionMode, 'mixed'>) => void
 }): React.JSX.Element {
   const mixedHintId = 'agent-permissions-mixed-hint'
+  const showMixedHint = mode === 'mixed' || hasCustomOverrides
 
   return (
     <section className="space-y-3">
@@ -118,7 +121,7 @@ export function AgentPermissionsSetting({
               'auto.components.settings.AgentsPane.agentPermissions',
               'Agent Permissions'
             )}
-            ariaDescribedBy={mode === 'mixed' ? mixedHintId : undefined}
+            ariaDescribedBy={showMixedHint ? mixedHintId : undefined}
             size="sm"
             options={[
               {
@@ -136,11 +139,11 @@ export function AgentPermissionsSetting({
           />
         }
       />
-      {mode === 'mixed' ? (
+      {showMixedHint ? (
         <p id={mixedHintId} className="text-xs text-muted-foreground">
           {translate(
             'auto.components.settings.AgentsPane.agentPermissionsMixedHint',
-            'Some agents have custom launch arguments, so permissions are mixed. Picking a mode applies it to the remaining agents.'
+            'Some agents have custom launch arguments, so they keep their own permission settings. Picking a mode applies it to the remaining agents.'
           )}
         </p>
       ) : null}
@@ -271,7 +274,7 @@ export function AgentsPane({
       ) : null}
       <AgentCacheTimerSection settings={settings} updateSettings={updateSettings} />
       <AgentPermissionsSetting
-        mode={resolveAgentPermissionModeSummary({ agentDefaultArgs, agentDefaultEnv })}
+        {...resolveAgentPermissionControlState({ agentDefaultArgs, agentDefaultEnv })}
         onChange={(mode) =>
           updateSettings(applyAgentPermissionMode({ mode, agentDefaultArgs, agentDefaultEnv }))
         }

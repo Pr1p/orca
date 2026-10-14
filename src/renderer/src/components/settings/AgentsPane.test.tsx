@@ -441,6 +441,19 @@ describe('AgentsPane', () => {
     }
   })
 
+  it('keeps Manual selected when custom agent arguments remain', () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(
+        TooltipProvider,
+        null,
+        AgentPermissionsSetting({ mode: 'manual', hasCustomOverrides: true, onChange: vi.fn() })
+      )
+    )
+
+    expect(markup).toMatch(/aria-checked="true"[^>]*>Manual</)
+    expect(markup).toContain('keep their own permission settings')
+  })
+
   it('forwards uniform permission selections and ignores a mixed selection', () => {
     const onChange = vi.fn()
     const element = AgentPermissionsSetting({ mode: 'mixed', onChange })
