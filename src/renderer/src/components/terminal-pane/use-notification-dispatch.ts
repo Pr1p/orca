@@ -1,7 +1,16 @@
+import {
+  resolveTerminalNotificationOwner,
+  type TerminalNotificationBinding
+} from '@/attention/notification-subject-owner'
+import {
+  notificationExecutionHostForOwner,
+  notificationSourceForOwner
+} from '../../../../shared/notification-source'
 import { useCallback } from 'react'
 import { useAppStore } from '@/store'
 import { resolveCommittedTitleAgentType } from '@/lib/pane-agent-evidence'
 import { buildAgentNotificationId } from '../../../../shared/agent-notification-id'
+import { agentMainAgentVerdict } from '../../../../shared/agent-main-agent-verdict'
 import { shareCompatibleTitleIdentityGroup } from '../../../../shared/agent-title-owner'
 import {
   isFreshNonDoneAgentStatus,
@@ -47,10 +56,9 @@ function hasFreshActiveHookStatus(
   return Boolean(isFreshNonDoneAgentStatus(snapshot) && !titleNamesDifferentKnownAgent)
 }
 
-export type TerminalNotificationEvent = {
+export type TerminalNotificationEvent = TerminalNotificationBinding & {
   source: 'terminal-bell' | 'agent-task-complete'
   terminalTitle?: string
-  paneKey?: string
   agentStatusSnapshot?: AgentCompletionStatusSnapshot
   agentCompletionSource?: AgentCompletionDispatchMeta['source']
 }
@@ -146,7 +154,7 @@ export function dispatchTerminalNotification(
         agentToolName: agentStatus.toolName,
         agentToolInput: agentStatus.toolInput,
         agentLastAssistantMessage: agentStatus.lastAssistantMessage,
-        agentInterrupted: agentStatus.interrupted
+        agentTurnOutcome: agentMainAgentVerdict(agentStatus) ?? undefined
       }
     : {}
   const notificationId =
@@ -162,13 +170,17 @@ export function dispatchTerminalNotification(
       : null
 
   const requestDelivery = (request: AgentAttentionDeliveryRequest): void => {
+    const owner = resolveTerminalNotificationOwner(state, worktreeId, event)
+    const executionHost = notificationExecutionHostForOwner(owner)
     deliverAgentAttentionNotification(
       {
         source: event.source,
         ...(notificationId ? { notificationId } : {}),
         worktreeId: request.workspaceId,
+        ...(executionHost ? { executionHost } : {}),
         paneKey: request.subjectKey ?? undefined,
         ...getNotificationWorkspaceLabels(state, request.workspaceId, event.terminalTitle),
+        notificationSourceId: notificationSourceForOwner(owner, state),
         terminalTitle: event.terminalTitle,
         isActiveWorktree: request.workspaceIsActive,
         ...agentSnapshot
