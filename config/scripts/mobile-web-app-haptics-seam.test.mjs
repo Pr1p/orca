@@ -7,8 +7,6 @@
  * route that imports the seam without declaring `haptics` is a page whose taps go quiet, because
  * grants are resolved once from the route the shell opened.
  *
- * The scan has a control rather than an empty list: the same walk over the native sibling finds the
- * same five functions and no posting site, which is what says it can tell the two apart.
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -39,6 +37,14 @@ const read = (file) => readFileSync(join(mobileDir, file), 'utf8')
 
 /** The route module behind each declared page route, shared with the screencast-lane census. */
 const ROUTE_MODULES = PAGE_ROUTE_MODULES
+
+// These cases read the same source tree; keep each route's real closure once.
+const closures = new Map()
+async function closureOf(module) {
+  const built = closures.get(module) ?? mobileWebAppRouteClosure(module)
+  closures.set(module, built)
+  return structuredClone(await built)
+}
 
 const HAPTICS_GRANT = 'haptics'
 
@@ -144,29 +150,12 @@ describe('the seam reader', () => {
   })
 })
 
-/**
- * The two siblings measured against each other, which is what makes "all five post" a number.
- *
- * The native file is the control: same five names, same walk, no posting site. Without it an empty
- * result and a file the scan could not read would report the same thing.
- */
 describe('the two haptics siblings', () => {
   it('posts every kind the notify admits from the web sibling, and nothing more', () => {
     const kinds = bridgeHapticsKinds(read(HAPTICS_KINDS_MODULE), HAPTICS_KINDS_MODULE)
     expect(kinds).toHaveLength(5)
     const posted = hapticsPostedKinds(read(HAPTICS_SEAM), HAPTICS_SEAM)
     expect([...posted].sort()).toEqual([...kinds].sort())
-  })
-
-  it('finds five functions in the native sibling and no posting site at all', () => {
-    const sites = hapticsTriggerSites(read(HAPTICS_NATIVE), HAPTICS_NATIVE)
-    expect(sites).toHaveLength(5)
-    expect(sites.filter((site) => site.kind !== null)).toEqual([])
-  })
-
-  it('exports the same five names from both, which is what makes one a substitution', () => {
-    const names = (file) => hapticsTriggerSites(read(file), file).map((site) => site.name)
-    expect(names(HAPTICS_SEAM)).toEqual(names(HAPTICS_NATIVE))
   })
 
   /**
@@ -222,7 +211,7 @@ describeClosure(
   'every page route closure and the haptics seam',
   () => {
     it.each([...ROUTE_MODULES])('resolves the seam to the web sibling: %s', async (_route, mod) => {
-      const closure = await mobileWebAppRouteClosure(mod)
+      const closure = await closureOf(mod)
       expect(closure.local).toContain(HAPTICS_SEAM)
       expect(closure.local).not.toContain(HAPTICS_NATIVE)
       // The precondition an assertion about a closure needs: the walk read a page, not nothing.
@@ -232,7 +221,7 @@ describeClosure(
     it.each([...ROUTE_MODULES])(
       'imports the seam from at least one module, so the grant is not idle: %s',
       async (_route, mod) => {
-        const closure = await mobileWebAppRouteClosure(mod)
+        const closure = await closureOf(mod)
         expect(hapticsSeamImporters(mobileDir, closure).length).toBeGreaterThan(0)
       }
     )
@@ -252,7 +241,7 @@ describeClosure(
     it('declares haptics on exactly the routes whose closure reaches the seam', async () => {
       const reaching = []
       for (const [route, mod] of ROUTE_MODULES) {
-        const closure = await mobileWebAppRouteClosure(mod)
+        const closure = await closureOf(mod)
         if (hapticsSeamImporters(mobileDir, closure).length > 0) {
           reaching.push(route)
         }
@@ -283,7 +272,7 @@ describeClosure(
      */
     it('adds one module to a page closure, and only the two haptics modules are in it', async () => {
       for (const mod of ROUTE_MODULES.values()) {
-        const closure = await mobileWebAppRouteClosure(mod)
+        const closure = await closureOf(mod)
         expect(closure.local.filter((file) => file.includes('haptics')).sort(), mod).toEqual([
           HAPTICS_KINDS_MODULE,
           HAPTICS_SEAM

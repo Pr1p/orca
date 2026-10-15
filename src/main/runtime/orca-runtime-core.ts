@@ -1,10 +1,9 @@
-// @ts-nocheck -- mechanically split from OrcaRuntimeService; behavior is covered by AST equivalence and characterization tests.
 import type { RuntimeWorktreeScanResult } from './repo-worktree-resolution-scan'
 import type { TerminalWorkspaceLaunchScope } from './runtime-legacy-worker-terminal-recovery-types'
 import type { ResolvedWorktree } from './runtime-worktree-path-identity'
 import type { RuntimeLeafRecord } from './runtime-terminal-state-records'
+import type { RuntimeTerminalRowMetadata } from '../../shared/runtime-terminal-contracts'
 import { isCursorAgentTitle } from '../../shared/agent-detection'
-import { isAbsolute, relative, resolve } from 'node:path'
 import { IMMEDIATE_KILL_REPLY_BUDGET_MS } from '../daemon/immediate-kill-reply-budget'
 import type {
   RuntimeTerminalDriverState,
@@ -59,10 +58,6 @@ export function isCursorAgentOrchestrationTarget(
   return [leaf.lastOscTitle, leaf.paneTitle, tabTitle].some(isCursorAgentTitle)
 }
 
-export const AGENT_SESSION_OPERATION_PER_CLIENT_LIMIT = 512
-
-export const AGENT_SESSION_OPERATION_GLOBAL_LIMIT = 4_096
-
 // Why: long enough for a phone to reconnect and retry a create whose response
 // was lost, short enough that an intentional later re-resume forks fresh.
 export const MOBILE_TERMINAL_CREATE_RESULT_TTL_MS = 60_000
@@ -100,7 +95,11 @@ export const PROVEN_ABSENT_LEAF_PTY_TTL_MS = 15_000
 
 export const TERMINAL_INTERACTIVE_WAIT_PROBE_TIMEOUT_MS = 2_000
 
-export type RuntimeTerminalProjection = { lines: string[]; draft?: string }
+export type RuntimeTerminalProjection = {
+  lines: string[]
+  draft?: string
+  tailRows?: RuntimeTerminalRowMetadata[]
+}
 
 export function assertAgentPromptRequestActive(signal?: AbortSignal): void {
   if (signal?.aborted) {
@@ -272,11 +271,6 @@ export function addListenerToMap<T>(
       map.delete(key)
     }
   }
-}
-
-export function isPathWithinDirectory(directory: string, candidate: string): boolean {
-  const relativePath = relative(resolve(directory), resolve(candidate))
-  return relativePath === '' || (!relativePath.startsWith('..') && !isAbsolute(relativePath))
 }
 
 export const AGENT_HOOK_RUNTIME_ENV_KEYS = [

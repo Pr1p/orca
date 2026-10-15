@@ -1,14 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
-import {
-  View,
-  Pressable,
-  useWindowDimensions,
-  ScrollView,
-  Keyboard,
-  Modal,
-  Platform
-} from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { View, Pressable, useWindowDimensions, ScrollView, Keyboard, Modal } from 'react-native'
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler'
 import Animated, {
   useSharedValue,
@@ -25,10 +16,15 @@ import { resolveBottomDrawerFillHeight } from './bottom-drawer-fill-height'
 import { resolveBottomDrawerKeyboardInset } from './bottom-drawer-keyboard-inset'
 import { BOTTOM_DRAWER_HIDE_DURATION_MS } from './bottom-drawer-constants'
 import { bottomDrawerStyles as styles } from './bottom-drawer-styles'
-import { useInsideBottomDrawerModalHost } from './bottom-drawer-modal-host'
+import {
+  useBottomDrawerModalHost,
+  useBottomDrawerModalHostBackClaim
+} from './bottom-drawer-modal-host-scope'
 import { useResponsiveLayout } from '../layout/responsive-layout'
+import { useWindowSafeAreaInsets } from '../layout/side-safe-area'
 import { useBackClaim } from '../navigation/use-back-claim'
 import { currentSoftKeyboardHeight, subscribeSoftKeyboard } from '../platform/keyboard-occlusion'
+import { hostOs } from '../platform/host-os'
 
 const DISMISS_THRESHOLD = 80
 const SPRING_CONFIG = { damping: 28, stiffness: 400 }
@@ -75,12 +71,12 @@ export function MountedBottomDrawer({
   // edge stays under the status bar.
   const [keyboardInset, setKeyboardInset] = useState(0)
   const { height: screenHeight } = useWindowDimensions()
-  const insets = useSafeAreaInsets()
+  const insets = useWindowSafeAreaInsets()
   // Why: on wide/tablet canvases a full-width sheet looks stretched; cap it and
   // center it horizontally. Vertical bottom-anchoring (and all the drag/keyboard
   // transforms below) is unchanged, so phone behavior stays identical.
   const { isWideLayout, modalMaxWidth } = useResponsiveLayout()
-  const insideModalHost = useInsideBottomDrawerModalHost()
+  const insideModalHost = useBottomDrawerModalHost() !== null
   const fillHeight = fillAvailable
     ? resolveBottomDrawerFillHeight({
         screenHeight,
@@ -131,8 +127,7 @@ export function MountedBottomDrawer({
   // Why: KeyboardAvoidingView and useAnimatedKeyboard are both unreliable
   // inside Modal (iOS ignores KAV; Android needs adjustNothing for
   // useAnimatedKeyboard). The keyboard seam's events work on both platforms
-  // and give the exact height; inside the shell's page none fire, because
-  // the shell shortens the WebView above the IME.
+  // and give the exact height; inside the shell's page they are the shell's.
   useEffect(() => {
     // Pinned-under sheets stay visible for size but must not ride the keyboard —
     // only the top interactive sheet owns inset/lift.
@@ -147,7 +142,7 @@ export function MountedBottomDrawer({
         keyboardHeight,
         bottomInset: insets.bottom,
         fillAvailable,
-        platform: Platform.OS
+        platform: hostOs()
       })
       setKeyboardInset(inset)
       if (duration > 0) {
@@ -185,13 +180,18 @@ export function MountedBottomDrawer({
   }, [visible, interactive, insets.bottom, fillAvailable])
 
   const dismiss = useCallback(() => {
+    // Why: restarting the hide animation cancels it, so onHidden never fires and the
+    // invisible Modal stays up swallowing taps (Android Back lands here mid-close).
+    if (!visible) {
+      return
+    }
     Keyboard.dismiss()
     progress.value = withTiming(0, { duration: BOTTOM_DRAWER_HIDE_DURATION_MS }, (finished) => {
       if (finished) {
         runOnJS(onClose)()
       }
     })
-  }, [onClose, progress])
+  }, [onClose, progress, visible])
 
   // One seam, both platforms: natively this is the hardware key, and inside the shell's page it is
   // a claim the shell hands one press over on. Every session sheet renders through this component,
@@ -205,6 +205,7 @@ export function MountedBottomDrawer({
         }
       : null
   )
+  useBottomDrawerModalHostBackClaim(visible && interactive ? dismiss : null)
 
   const scrollHandler = useAnimatedScrollHandler((event) => {
     scrollOffsetY.value = Math.max(event.contentOffset.y, 0)
@@ -379,7 +380,14 @@ export function MountedBottomDrawer({
           {interactive ? <Pressable style={styles.backdropPressable} onPress={dismiss} /> : null}
         </Animated.View>
 
-        <View style={[styles.anchor, isWideLayout && styles.anchorWide]} pointerEvents="box-none">
+        <View
+          style={[
+            styles.anchor,
+            isWideLayout && styles.anchorWide,
+            { paddingLeft: insets.left, paddingRight: insets.right }
+          ]}
+          pointerEvents="box-none"
+        >
           <Animated.View
             // Why: remount per window hand-back — see the windowEpoch effect.
             key={windowEpoch}

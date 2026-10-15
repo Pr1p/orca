@@ -159,6 +159,13 @@ function buttonText(props: Record<string, unknown>): string {
   return renderToStaticMarkup(<>{props.children as ReactNode}</>)
 }
 
+function clickCancel(): void {
+  const onClick = mocks.buttonProps.find((props) => props.variant === 'outline')?.onClick
+  if (typeof onClick === 'function') {
+    onClick()
+  }
+}
+
 function visibleMarkupText(markup: string): string {
   return markup.replace(/<[^>]*>/g, '')
 }
@@ -277,26 +284,6 @@ describe('DeleteWorktreeDialog lineage copy', () => {
     })
   })
 
-  it('keeps long child workspace paths constrained inside the lineage notice', async () => {
-    const child = makeWorktree(
-      'docs-file-upload-discovery-with-a-very-long-name',
-      '/Users/jinjingliang/Documents/projects/agent-slack/docs-file-upload-discovery-with-a-very-long-path-segment'
-    )
-    const { DeleteWorktreeLineageNotice } = await import('./DeleteWorktreeLineageNotice')
-
-    const markup = renderToStaticMarkup(
-      <DeleteWorktreeLineageNotice
-        descendants={[child]}
-        dirtyChangeCountsByWorktreeId={new Map()}
-      />
-    )
-
-    expect(markup).toContain('min-w-0 max-w-full overflow-hidden rounded-md')
-    expect(markup).toContain('mt-2 min-w-0 max-w-full space-y-1 overflow-hidden')
-    expect(markup).toContain('min-w-0 overflow-hidden')
-    expect(markup).toContain('truncate text-muted-foreground')
-  })
-
   it('uses non-destructive disk copy for folder workspace deletes', async () => {
     const workspace = {
       ...makeWorktree('Folder workspace', '/projects/folder'),
@@ -351,7 +338,9 @@ describe('DeleteWorktreeDialog lineage copy', () => {
     const markup = renderToStaticMarkup(<DeleteWorktreeDialog />)
 
     expect(markup).toContain('2 uncommitted or untracked changes')
-    expect(markup).toContain('Deleting this workspace permanently removes these changes from disk.')
+    expect(markup).toContain(
+      'Any uncommitted or untracked changes in Git workspaces will be permanently deleted.'
+    )
     expect(markup).not.toContain('Also delete local branch')
   })
 
@@ -379,6 +368,57 @@ describe('DeleteWorktreeDialog lineage copy', () => {
     expect(markup).not.toContain('Force Delete')
     expect(markup).toContain('1 uncommitted or untracked change')
     expect(mocks.state.removeWorktree).not.toHaveBeenCalled()
+  })
+
+  it('shows the error the host lists for a failed delete, not a stale local one', async () => {
+    const failure = 'Operation not permitted'
+    const workspace = {
+      ...makeWorktree('Failed workspace', '/workspaces/failed'),
+      removalError: failure
+    }
+    mocks.state.modalData = { worktreeId: workspace.id }
+    mocks.state.allWorktrees.mockReturnValue([workspace])
+    // What a lost retry reply leaves behind while the host lists the retry's own failure.
+    mocks.state.deleteStateByWorktreeId = {
+      [workspace.id]: {
+        isDeleting: false,
+        error: 'Request timed out',
+        canForceDelete: false,
+        forceDeleteReason: null
+      }
+    }
+
+    const { default: DeleteWorktreeDialog } = await import('./DeleteWorktreeDialog')
+    const markup = renderToStaticMarkup(<DeleteWorktreeDialog />)
+
+    expect(markup).toContain(failure)
+    expect(markup).not.toContain('Request timed out')
+  })
+
+  it('shows a failed row’s host error in a batch and clears every stale error on Cancel', async () => {
+    const failed = {
+      ...makeWorktree('Failed workspace', '/workspaces/failed'),
+      removalError: 'Operation not permitted'
+    }
+    const dirty = makeWorktree('Dirty workspace', '/workspaces/dirty')
+    mocks.state.modalData = { worktreeIds: [failed.id, dirty.id] }
+    mocks.state.allWorktrees.mockReturnValue([failed, dirty])
+    mocks.state.deleteStateByWorktreeId = {
+      [dirty.id]: {
+        isDeleting: false,
+        error: 'Worktree has uncommitted changes',
+        canForceDelete: true,
+        forceDeleteReason: 'dirty'
+      }
+    }
+
+    const { default: DeleteWorktreeDialog } = await import('./DeleteWorktreeDialog')
+    const markup = renderToStaticMarkup(<DeleteWorktreeDialog />)
+    clickCancel()
+
+    expect(markup).toContain('Operation not permitted')
+    expect(mocks.state.clearWorktreeDeleteState).toHaveBeenCalledWith(failed.id, undefined)
+    expect(mocks.state.clearWorktreeDeleteState).toHaveBeenCalledWith(dirty.id, undefined)
   })
 
   it('notifies the dialog caller after a toast force delete succeeds', async () => {

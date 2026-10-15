@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   TerminalStreamOpcode,
   decodeTerminalStreamFrame,
@@ -10,6 +10,19 @@ import {
   type MultiplexSubscriptionCallbacks
 } from './remote-runtime-pty-transport-test-harness'
 import { REMOTE_RUNTIME_AUTO_RECOVERY_TIMEOUT_MS } from './remote-runtime-pty-recovery-state'
+
+// These transport fixtures never read abandoned-launch ownership from the app store.
+const appStore = vi.hoisted(() => ({
+  getState: vi.fn(() => {
+    throw new Error('These transport fixtures must not read app-store ownership')
+  })
+}))
+
+vi.mock('@/store', () => ({ useAppStore: { getState: appStore.getState } }))
+
+afterEach(() => {
+  expect(appStore.getState).not.toHaveBeenCalled()
+})
 
 let subscriptionCallbacks: MultiplexSubscriptionCallbacks = null
 let resolvedPaneHandle = 'terminal-1'
@@ -76,7 +89,7 @@ describe('createRemoteRuntimePtyTransport', () => {
       if (!sendInputAccepted) {
         throw new Error('Expected acknowledged remote terminal input')
       }
-      const pendingSend = sendInputAccepted('sent-before-stream-end')
+      const pendingSend = sendInputAccepted('sent-before-stream-end', 'driving')
       await vi.waitFor(() =>
         expect(runtimeCall).toHaveBeenCalledWith(
           expect.objectContaining({ method: 'terminal.send' })
@@ -361,7 +374,10 @@ describe('createRemoteRuntimePtyTransport', () => {
     if (!sendInputAccepted) {
       throw new Error('Expected acknowledged remote terminal input')
     }
-    const sends = Promise.all([sendInputAccepted('first'), sendInputAccepted('second')])
+    const sends = Promise.all([
+      sendInputAccepted('first', 'driving'),
+      sendInputAccepted('second', 'driving')
+    ])
     await vi.waitFor(() => expect(hostListCalls).toBe(1))
     await expect(sends).resolves.toEqual([false, false])
 
