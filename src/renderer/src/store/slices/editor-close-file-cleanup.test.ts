@@ -575,7 +575,7 @@ describe('closeFile host mirroring', () => {
     expect(store.getState().openFiles).toHaveLength(0)
   })
 
-  it('removes clean owner-mismatched editor siblings and every linked tab', () => {
+  it('removes clean same-owner duplicate editor siblings and every linked tab', () => {
     const store = createEditorTabsStore()
     store.getState().openFile({
       filePath: '/repo/a.ts',
@@ -585,12 +585,12 @@ describe('closeFile host mirroring', () => {
       mode: 'edit'
     })
     const localFile = store.getState().openFiles[0]!
-    const remoteFileId = ownedEditorFileId('/repo/a.ts', 'wt-1', 'remote-1')
+    const duplicateFileId = 'owner-duplicate-a.ts'
     store.setState({
-      openFiles: [localFile, { ...localFile, id: remoteFileId, runtimeEnvironmentId: 'remote-1' }],
+      openFiles: [localFile, { ...localFile, id: duplicateFileId }],
       activeFileId: localFile.id,
       activeFileIdByWorktree: { 'wt-1': localFile.id },
-      tabBarOrderByWorktree: { 'wt-1': [localFile.id, remoteFileId] }
+      tabBarOrderByWorktree: { 'wt-1': [localFile.id, duplicateFileId] }
     })
     store.getState().createUnifiedTab('wt-1', 'editor', {
       id: 'local-editor-tab',
@@ -599,8 +599,8 @@ describe('closeFile host mirroring', () => {
       activate: false
     })
     store.getState().createUnifiedTab('wt-1', 'editor', {
-      id: 'remote-editor-tab',
-      entityId: remoteFileId,
+      id: 'duplicate-editor-tab',
+      entityId: duplicateFileId,
       label: 'a.ts',
       activate: false
     })
@@ -613,7 +613,7 @@ describe('closeFile host mirroring', () => {
     expect(store.getState().recentlyClosedEditorTabsByWorktree['wt-1']).toHaveLength(1)
   })
 
-  it('keeps an owner-mismatched sibling with an unsaved draft', () => {
+  it('keeps a same-owner duplicate sibling with an unsaved draft', () => {
     const store = createEditorTabsStore()
     store.getState().openFile({
       filePath: '/repo/a.ts',
@@ -623,24 +623,24 @@ describe('closeFile host mirroring', () => {
       mode: 'edit'
     })
     const localFile = store.getState().openFiles[0]!
-    const remoteFileId = ownedEditorFileId('/repo/a.ts', 'wt-1', 'remote-1')
+    const duplicateFileId = 'owner-duplicate-a.ts'
     store.setState({
       openFiles: [
         localFile,
-        { ...localFile, id: remoteFileId, runtimeEnvironmentId: 'remote-1', isDirty: true }
+        { ...localFile, id: duplicateFileId, isDirty: true }
       ],
-      editorDrafts: { [remoteFileId]: 'unsaved remote draft' }
+      editorDrafts: { [duplicateFileId]: 'unsaved draft' }
     })
 
     store.getState().closeFile(localFile.id)
 
     expect(store.getState().openFiles).toEqual([
-      expect.objectContaining({ id: remoteFileId, isDirty: true })
+      expect.objectContaining({ id: duplicateFileId, isDirty: true })
     ])
-    expect(store.getState().editorDrafts).toEqual({ [remoteFileId]: 'unsaved remote draft' })
+    expect(store.getState().editorDrafts).toEqual({ [duplicateFileId]: 'unsaved draft' })
   })
 
-  it('keeps an owner-mismatched sibling with an empty unsaved draft', () => {
+  it('keeps a same-owner duplicate sibling with an empty unsaved draft', () => {
     const store = createEditorTabsStore()
     store.getState().openFile({
       filePath: '/repo/a.ts',
@@ -650,21 +650,21 @@ describe('closeFile host mirroring', () => {
       mode: 'edit'
     })
     const localFile = store.getState().openFiles[0]!
-    const remoteFileId = ownedEditorFileId('/repo/a.ts', 'wt-1', 'remote-1')
+    const duplicateFileId = 'owner-duplicate-a.ts'
     store.setState({
       openFiles: [
         localFile,
-        { ...localFile, id: remoteFileId, runtimeEnvironmentId: 'remote-1', isDirty: false }
+        { ...localFile, id: duplicateFileId, isDirty: false }
       ],
-      editorDrafts: { [remoteFileId]: '' }
+      editorDrafts: { [duplicateFileId]: '' }
     })
 
     store.getState().closeFile(localFile.id)
 
     expect(store.getState().openFiles).toEqual([
-      expect.objectContaining({ id: remoteFileId, isDirty: false })
+      expect.objectContaining({ id: duplicateFileId, isDirty: false })
     ])
-    expect(store.getState().editorDrafts).toEqual({ [remoteFileId]: '' })
+    expect(store.getState().editorDrafts).toEqual({ [duplicateFileId]: '' })
   })
 
   it('repairs an inactive worktree selection swept with duplicate siblings', () => {
@@ -677,7 +677,7 @@ describe('closeFile host mirroring', () => {
       mode: 'edit'
     })
     const localFile = store.getState().openFiles[0]!
-    const remoteFileId = ownedEditorFileId('/repo/a.ts', 'wt-1', 'remote-1')
+    const duplicateFileId = 'owner-duplicate-a.ts'
     const remainingFile = {
       ...localFile,
       id: 'wt-1-remaining',
@@ -694,13 +694,13 @@ describe('closeFile host mirroring', () => {
     store.setState({
       openFiles: [
         localFile,
-        { ...localFile, id: remoteFileId, runtimeEnvironmentId: 'remote-1' },
+        { ...localFile, id: duplicateFileId },
         remainingFile,
         activeElsewhere
       ],
       activeFileId: activeElsewhere.id,
       activeWorktreeId: 'wt-2',
-      activeFileIdByWorktree: { 'wt-1': remoteFileId, 'wt-2': activeElsewhere.id }
+      activeFileIdByWorktree: { 'wt-1': duplicateFileId, 'wt-2': activeElsewhere.id }
     })
 
     store.getState().closeFile(localFile.id)
@@ -721,10 +721,9 @@ describe('closeFile host mirroring', () => {
     const localFile = store.getState().openFiles[0]!
     const duplicateBefore = {
       ...localFile,
-      id: 'duplicate-before',
-      runtimeEnvironmentId: 'remote-1'
+      id: 'duplicate-before'
     }
-    const duplicateAfter = { ...localFile, id: 'duplicate-after', runtimeEnvironmentId: 'remote-2' }
+    const duplicateAfter = { ...localFile, id: 'duplicate-after' }
     const leftFile = {
       ...localFile,
       id: 'left-file',
@@ -776,6 +775,28 @@ describe('closeFile host mirroring', () => {
     store.getState().closeFile(sshAFile.id)
 
     expect(store.getState().openFiles).toEqual([sshBFile])
+  })
+
+  it('retains a clean duplicate sibling owned by another runtime environment', () => {
+    const store = createEditorTabsStore()
+    store.getState().openFile({
+      filePath: '/repo/a.ts',
+      relativePath: 'a.ts',
+      worktreeId: 'wt-1',
+      language: 'typescript',
+      mode: 'edit'
+    })
+    const localFile = store.getState().openFiles[0]!
+    const remoteOwnedFile = {
+      ...localFile,
+      id: ownedEditorFileId('/repo/a.ts', 'wt-1', 'remote-1'),
+      runtimeEnvironmentId: 'remote-1'
+    }
+    store.setState({ openFiles: [localFile, remoteOwnedFile] })
+
+    store.getState().closeFile(localFile.id)
+
+    expect(store.getState().openFiles).toEqual([remoteOwnedFile])
   })
 
   it('notifies the host for mirrored editors removed by close all in the active worktree', () => {

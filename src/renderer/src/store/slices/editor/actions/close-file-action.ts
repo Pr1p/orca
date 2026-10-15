@@ -13,15 +13,38 @@ import {
   shouldDeleteUntouchedUntitledFile
 } from '../tabs/untitled-file-cleanup'
 import { unifiedTabsKeepWorktreeSelected } from './unified-tabs-keep-worktree-selected'
+import { isSameEditorOwner, mayShareEditorBackingFile } from '../file-ids/editor-file-ids'
+import { isEditorTabContentType } from '../tabs/editor-tab-content-type'
 
-function isSameEditableDocument(candidate: OpenFile, closedFile: OpenFile): boolean {
+function isSameDocumentOwner(candidate: OpenFile, closedFile: OpenFile): boolean {
+  const expectedRoute = closedFile.operationProvenance?.generation.route
+  const actualRoute = candidate.operationProvenance?.generation.route
   return (
-    closedFile.mode === 'edit' &&
-    candidate.mode === 'edit' &&
-    candidate.worktreeId === closedFile.worktreeId &&
+    isSameEditorOwner(candidate, closedFile.worktreeId, closedFile.runtimeEnvironmentId) &&
+    candidate.filePath === closedFile.filePath &&
+    candidate.externalSshTargetId === closedFile.externalSshTargetId &&
+    actualRoute?.executionHostId === expectedRoute?.executionHostId &&
+    actualRoute?.runtimeEnvironmentId === expectedRoute?.runtimeEnvironmentId
+  )
+}
+
+function isSameOwnedDocument(candidate: OpenFile, closedFile: OpenFile): boolean {
+  const expected = closedFile.operationProvenance
+  const actual = candidate.operationProvenance
+  const expectedGeneration = expected?.generation
+  const actualGeneration = actual?.generation
+  return (
+    isSameDocumentOwner(candidate, closedFile) &&
     !closedFile.externalSshTargetId &&
     !candidate.externalSshTargetId &&
-    candidate.filePath === closedFile.filePath
+    actual?.ownershipProjection === expected?.ownershipProjection &&
+    actual?.expectedSshConnectionGeneration === expected?.expectedSshConnectionGeneration &&
+    actualGeneration?.runtimeConnectionGeneration ===
+      expectedGeneration?.runtimeConnectionGeneration &&
+    actualGeneration?.runtimePairingRevision === expectedGeneration?.runtimePairingRevision &&
+    actualGeneration?.runtimeSshGeneration === expectedGeneration?.runtimeSshGeneration &&
+    actualGeneration?.nestedSshGeneration === expectedGeneration?.nestedSshGeneration &&
+    actualGeneration?.directSshGeneration === expectedGeneration?.directSshGeneration
   )
 }
 
@@ -53,24 +76,46 @@ export function createCloseFileAction(
     closeFile: (fileId) => {
       // Why: capture untitled+dirty state before set() mutates the store, so cleanup of throwaway untitled files can decide after removal.
       const preClose = get().openFiles.find((f) => f.id === fileId)
-      // Why: an owner-routing mistake can leave one editable document under several ids; close clean siblings too, but keep a divergent unsaved draft for recovery.
+      // Why: stale same-owner records survive tab close; retain other owners and pending drafts.
       const fileIdsToClose = new Set(
         preClose
           ? get()
               .openFiles.filter(
                 (file) =>
                   file.id === fileId ||
-                  (isSameEditableDocument(file, preClose) &&
+                  (preClose.mode === 'edit' &&
+                    file.mode === 'edit' &&
+                    preClose.readOnly !== true &&
+                    file.readOnly !== true &&
+                    isSameOwnedDocument(file, preClose) &&
+                    !get().unifiedTabsByWorktree[file.worktreeId]?.some(
+                      (tab) => tab.entityId === file.id && tab.isPinned
+                    ) &&
                     !file.isDirty &&
                     !(file.id in get().editorDrafts))
               )
               .map((file) => file.id)
           : [fileId]
       )
+      const unifiedTabIdsToClose = Object.values(get().unifiedTabsByWorktree ?? {}).flatMap(
+        (tabs) =>
+          tabs
+            .filter(
+              (entry) =>
+                fileIdsToClose.has(entry.entityId) && isEditorTabContentType(entry.contentType)
+            )
+            .map((entry) => entry.id)
+      )
+      const closedTabOrderIds = new Set([...fileIdsToClose, ...unifiedTabIdsToClose])
       const preCloseFiles = get().openFiles.filter((file) => fileIdsToClose.has(file.id))
       // Why: also check editorDrafts — isDirty is set by a debounced callback, so a draft can exist before isDirty flushes; a draft means the user typed something.
-      const hasDraft = !!get().editorDrafts[fileId]
-      const shouldDeleteFromDisk = shouldDeleteUntouchedUntitledFile(preClose, hasDraft)
+      const hasDraft = fileId in get().editorDrafts
+      const shouldDeleteFromDisk =
+        preClose !== undefined &&
+        shouldDeleteUntouchedUntitledFile(preClose, hasDraft) &&
+        !get().openFiles.some(
+          (file) => !fileIdsToClose.has(file.id) && mayShareEditorBackingFile(file, preClose)
+        )
 
       // Why: mirrored tabs are host-owned, so the host must close its copy or its next snapshot re-mirrors the file and the tab reopens.
       for (const file of preCloseFiles) {
@@ -186,7 +231,7 @@ export function createCloseFileAction(
             ? {
                 ...s.tabBarOrderByWorktree,
                 [worktreeId]: (s.tabBarOrderByWorktree[worktreeId] ?? []).filter(
-                  (entryId) => !fileIdsToClose.has(entryId)
+                  (entryId) => !closedTabOrderIds.has(entryId)
                 )
               }
             : s.tabBarOrderByWorktree
@@ -194,7 +239,7 @@ export function createCloseFileAction(
         let nextRecentlyClosed = s.recentlyClosedEditorTabsByWorktree
         let nextRecentlyClosedKinds = s.recentlyClosedTabKindsByWorktree
         const wtRecent = closedFile?.worktreeId
-        // Why: exclude untitled unedited files (deleted from disk after close, so Cmd+Shift+T can't reopen a gone path) and ephemeral preview tabs from the reopen stack.
+        // Why: exclude untitled unedited files (deleted from disk after close, so Cmd+Shift+T can't reopen a gone path), ephemeral preview tabs, and chat visuals (one click away in their chat) from the reopen stack.
         if (
           closedFile &&
           wtRecent &&
@@ -260,23 +305,10 @@ export function createCloseFileAction(
 
       // Why: untitled unedited files exist on disk only because createUntitledMarkdownFile() eagerly writes a bindable path; delete the clutter (fire-and-forget).
       if (shouldDeleteFromDisk && preClose && typeof window !== 'undefined') {
-        deleteUntouchedUntitledFile(get(), preClose)
+        deleteUntouchedUntitledFile(get, preClose)
       }
 
       // Why: route editor/diff closes through the unified close path (MRU + visual-neighbor fallback) so they match terminal/browser tab-close behavior.
-      const unifiedTabIdsToClose = Object.values(get().unifiedTabsByWorktree ?? {}).flatMap(
-        (tabs) =>
-          tabs
-            .filter(
-              (entry) =>
-                fileIdsToClose.has(entry.entityId) &&
-                (entry.contentType === 'editor' ||
-                  entry.contentType === 'diff' ||
-                  entry.contentType === 'conflict-review' ||
-                  entry.contentType === 'check-details')
-            )
-            .map((entry) => entry.id)
-      )
       for (const unifiedTabId of unifiedTabIdsToClose) {
         get().closeUnifiedTab(unifiedTabId)
       }
