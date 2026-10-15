@@ -10,6 +10,11 @@ import {
   shouldHandleSurfaceZoomWheel
 } from './anchored-surface-zoom'
 
+const DOM_DELTA_LINE = 1
+const DOM_DELTA_PAGE = 2
+const PIXELS_PER_LINE = 16
+const PIXELS_PER_PAGE = 800
+
 export const MIN_IMAGE_VIEWER_ZOOM = 0.25
 export const MAX_IMAGE_VIEWER_ZOOM = 8
 export const IMAGE_VIEWER_ZOOM_STEP = 1.25
@@ -34,6 +39,14 @@ export function clampImageViewerZoom(next: number): number {
 
 export function shouldHandleImageZoomWheel(event: ImageZoomWheelEventLike): boolean {
   return shouldHandleSurfaceZoomWheel(event)
+}
+
+export function getWheelDeltaPixels(delta: number, deltaMode: number): number {
+  return deltaMode === DOM_DELTA_LINE
+    ? delta * PIXELS_PER_LINE
+    : deltaMode === DOM_DELTA_PAGE
+      ? delta * PIXELS_PER_PAGE
+      : delta
 }
 
 export function getPinchZoomFactor(deltaY: number, deltaMode: number): number {
