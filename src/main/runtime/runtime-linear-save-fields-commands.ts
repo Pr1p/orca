@@ -7,23 +7,35 @@ import {
 } from './runtime-linear-command-dependencies'
 import { RuntimeLinearTaskFieldCommands } from './runtime-linear-task-fields-commands'
 
+function openingCodeFence(line: string): string | undefined {
+  return (
+    /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1] ??
+    /^ {0,3}(?:[-*+] |\d+[.)] )(?:\[[ xX]\] )?(`{3,}|~{3,})/.exec(line)?.[1]
+  )
+}
+
+function closingCodeFence(line: string): string | undefined {
+  return /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line)?.[1]
+}
+
+/** Ignores only the Markdown rewrites Linear performs outside code blocks. */
 function normalizeLinearIssueDescriptionForComparison(description: string): string {
   let codeFence: string | null = null
 
   return description
     .split('\n')
     .map((line) => {
-      const lineFence = /^\s*(`{3,}|~{3,})/.exec(line)?.[1]
-      if (codeFence === null && lineFence) {
-        codeFence = lineFence
-        return line
-      }
-      if (codeFence !== null && lineFence?.startsWith(codeFence)) {
-        codeFence = null
-        return line
-      }
       if (codeFence !== null) {
+        const closingFence = closingCodeFence(line)
+        if (closingFence?.[0] === codeFence[0] && closingFence.length >= codeFence.length) {
+          codeFence = null
+        }
         return line
+      }
+
+      const openingFence = openingCodeFence(line)
+      if (openingFence) {
+        codeFence = openingFence
       }
 
       return line

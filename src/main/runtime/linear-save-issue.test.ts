@@ -103,6 +103,31 @@ describe('Linear save issue', () => {
     expect(notify).toHaveBeenCalledWith('workspace-1', issue.identifier)
   })
 
+  it('sends edits inside list-contained fenced code blocks to Linear', async () => {
+    const runtime = new OrcaRuntimeService()
+    const current = {
+      ...issue,
+      description: ['- ```text', '  - literal item', '  ```'].join('\n')
+    }
+    const requestedDescription = ['- ```text', '  * literal item', '  ```'].join('\n')
+    const runWrite = vi.fn().mockResolvedValue({ ...current, description: requestedDescription })
+    Object.assign(runtime, {
+      resolveLinearAgentWriteTarget: vi
+        .fn()
+        .mockResolvedValue({ issue: current, workspaceId: 'workspace-1' }),
+      readLinearAgentIssueWriteRecord: vi.fn().mockResolvedValue(current),
+      buildLinearSaveUpdate: vi.fn().mockResolvedValue({ description: requestedDescription }),
+      runLinearAgentWrite: runWrite,
+      notifyLinearLinkedIssueUpdated: vi.fn().mockResolvedValue(undefined)
+    })
+
+    await expect(
+      runtime.linearSaveIssue({ input: current.identifier, description: requestedDescription })
+    ).resolves.toMatchObject({ issue: { description: requestedDescription } })
+
+    expect(runWrite).toHaveBeenCalledWith(expect.any(Function), expect.any(Function))
+  })
+
   it('accepts Linear Markdown rewrites without matching fenced or indented code blocks', () => {
     const runtime = new OrcaRuntimeService()
     const sentDescription = [
@@ -135,6 +160,27 @@ describe('Linear save issue', () => {
         { description: '```text\n- literal item\n```' }
       )
     ).toBe(false)
+
+    expect(
+      runtime.linearSavedIssueMatchesIntent(
+        { ...issue, description: '- ```text\n  * literal item\n  ```' },
+        { description: '- ```text\n  - literal item\n  ```' }
+      )
+    ).toBe(false)
+
+    expect(
+      runtime.linearSavedIssueMatchesIntent(
+        { ...issue, description: '```\n* literal item\n```text' },
+        { description: '```\n- literal item\n```text' }
+      )
+    ).toBe(false)
+
+    expect(
+      runtime.linearSavedIssueMatchesIntent(
+        { ...issue, description: '    ```\n* ordinary item\n    ```' },
+        { description: '    ```\n- ordinary item\n    ```' }
+      )
+    ).toBe(true)
 
     expect(
       runtime.linearSavedIssueMatchesIntent(
