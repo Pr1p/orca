@@ -7,6 +7,32 @@ import {
 import { linearError } from '../linear/issue-context/errors'
 import { RuntimeLinearTaskFieldCommands } from './runtime-linear-task-fields-commands'
 
+function normalizeLinearIssueDescriptionForComparison(description: string): string {
+  let codeFence: string | null = null
+
+  return description
+    .split('\n')
+    .map((line) => {
+      const lineFence = /^\s*(`{3,}|~{3,})/.exec(line)?.[1]
+      if (codeFence === null && lineFence) {
+        codeFence = lineFence
+        return line
+      }
+      if (codeFence !== null && lineFence?.startsWith(codeFence)) {
+        codeFence = null
+        return line
+      }
+      if (codeFence !== null) {
+        return line
+      }
+
+      return line
+        .replace(/^( {0,3})[-*] (?=\S)/, '$1* ')
+        .replace(/^( {0,3}[-*] \[[ xX]\] \d+)\\\.(?=\s)/, '$1.')
+    })
+    .join('\n')
+}
+
 export class RuntimeLinearSaveFieldCommands extends RuntimeLinearTaskFieldCommands {
   public linearSavedIssueMatchesIntent(
     issue: NonNullable<Awaited<ReturnType<typeof getLinearIssueByUuidForAgent>>>,
@@ -15,7 +41,11 @@ export class RuntimeLinearSaveFieldCommands extends RuntimeLinearTaskFieldComman
     if (fields.title !== undefined && issue.title !== fields.title) {
       return false
     }
-    if (fields.description !== undefined && (issue.description ?? '') !== fields.description) {
+    if (
+      fields.description !== undefined &&
+      normalizeLinearIssueDescriptionForComparison(issue.description ?? '') !==
+        normalizeLinearIssueDescriptionForComparison(fields.description)
+    ) {
       return false
     }
     if (fields.parentId !== undefined && (issue.parent?.id ?? null) !== fields.parentId) {
