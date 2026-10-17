@@ -7,6 +7,7 @@ import {
 } from './runtime-linear-command-dependencies'
 import { RuntimeLinearTaskFieldCommands } from './runtime-linear-task-fields-commands'
 
+/** Detects fence openers in ordinary and list-contained Markdown blocks. */
 function openingCodeFence(line: string): string | undefined {
   return (
     /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1] ??
@@ -14,6 +15,7 @@ function openingCodeFence(line: string): string | undefined {
   )
 }
 
+/** A valid closer has no non-whitespace content after its fence marker. */
 function closingCodeFence(line: string): string | undefined {
   return /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line)?.[1]
 }
