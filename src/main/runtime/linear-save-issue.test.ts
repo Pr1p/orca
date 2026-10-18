@@ -184,6 +184,13 @@ describe('Linear save issue', () => {
 
     expect(
       runtime.linearSavedIssueMatchesIntent(
+        { ...issue, description: '  - ```text\n    literal\n    ```\n* next item' },
+        { description: '  - ```text\n    literal\n    ```\n- next item' }
+      )
+    ).toBe(true)
+
+    expect(
+      runtime.linearSavedIssueMatchesIntent(
         { ...issue, description: '    * literal item' },
         { description: '    - literal item' }
       )

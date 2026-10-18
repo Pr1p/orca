@@ -7,29 +7,40 @@ import {
 } from './runtime-linear-command-dependencies'
 import { RuntimeLinearTaskFieldCommands } from './runtime-linear-task-fields-commands'
 
-/** Detects fence openers in ordinary and list-contained Markdown blocks. */
-function openingCodeFence(line: string): string | undefined {
-  return (
-    /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1] ??
-    /^ {0,3}(?:[-*+] |\d+[.)] )(?:\[[ xX]\] )?(`{3,}|~{3,})/.exec(line)?.[1]
-  )
+type MarkdownFence = {
+  marker: string
+  closingIndent: number
 }
 
-/** A valid closer has no non-whitespace content after its fence marker. */
-function closingCodeFence(line: string): string | undefined {
-  return /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line)?.[1]
+/** Detects fence openers in ordinary and list-contained Markdown blocks. */
+function openingCodeFence(line: string): MarkdownFence | undefined {
+  const ordinaryFence = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1]
+  if (ordinaryFence) {
+    return { marker: ordinaryFence, closingIndent: 3 }
+  }
+  const listFence = /^( {0,3}(?:[-*+] |\d+[.)] ))(`{3,}|~{3,})/.exec(line)
+  return listFence ? { marker: listFence[2], closingIndent: listFence[1].length } : undefined
+}
+
+/** A valid closer stays within its container indentation and has no trailing content. */
+function closingCodeFence(line: string, maximumIndent: number): string | undefined {
+  const closingFence = /^( *)(`{3,}|~{3,})[ \t]*$/.exec(line)
+  return closingFence && closingFence[1].length <= maximumIndent ? closingFence[2] : undefined
 }
 
 /** Ignores only the Markdown rewrites Linear performs outside code blocks. */
 function normalizeLinearIssueDescriptionForComparison(description: string): string {
-  let codeFence: string | null = null
+  let codeFence: MarkdownFence | null = null
 
   return description
     .split('\n')
     .map((line) => {
       if (codeFence !== null) {
-        const closingFence = closingCodeFence(line)
-        if (closingFence?.[0] === codeFence[0] && closingFence.length >= codeFence.length) {
+        const closingFence = closingCodeFence(line, codeFence.closingIndent)
+        if (
+          closingFence?.[0] === codeFence.marker[0] &&
+          closingFence.length >= codeFence.marker.length
+        ) {
           codeFence = null
         }
         return line
