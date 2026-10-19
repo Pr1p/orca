@@ -6,14 +6,14 @@ import {
 import { YOLO_TUI_AGENT_ARGS, YOLO_TUI_AGENT_ENV } from './tui-agent-permissions'
 
 describe('agent launch settings', () => {
-  it('keeps the global permission selection when an agent has custom arguments', () => {
+  it('persists a chosen global permission mode without hiding initial mixed state', () => {
     const settings = {
       agentDefaultArgs: { ...YOLO_TUI_AGENT_ARGS, codex: '--model gpt-5' },
       agentDefaultEnv: YOLO_TUI_AGENT_ENV
     }
 
     expect(projectAgentLaunchSettings(settings)).toMatchObject({
-      permissionMode: 'yolo',
+      permissionMode: 'mixed',
       permissionHasCustomOverrides: true
     })
 
@@ -26,5 +26,6 @@ describe('agent launch settings', () => {
       permissionMode: 'manual',
       permissionHasCustomOverrides: true
     })
+    expect(updates.agentPermissionMode).toBe('manual')
   })
 })

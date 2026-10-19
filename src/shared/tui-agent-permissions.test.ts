@@ -51,7 +51,7 @@ describe('tui agent permissions', () => {
     ).toBe('mixed')
   })
 
-  it('keeps the global selection when custom agent arguments are preserved', () => {
+  it('keeps mixed state unselected until the user chooses a global mode', () => {
     const settings = {
       agentDefaultArgs: {
         ...YOLO_TUI_AGENT_ARGS,
@@ -61,12 +61,14 @@ describe('tui agent permissions', () => {
     }
 
     expect(resolveAgentPermissionControlState(settings)).toEqual({
-      mode: 'yolo',
+      mode: 'mixed',
       hasCustomOverrides: true
     })
 
     const nextSettings = applyAgentPermissionMode({ mode: 'manual', ...settings })
-    expect(resolveAgentPermissionControlState(nextSettings)).toEqual({
+    expect(
+      resolveAgentPermissionControlState({ ...nextSettings, agentPermissionMode: 'manual' })
+    ).toEqual({
       mode: 'manual',
       hasCustomOverrides: true
     })

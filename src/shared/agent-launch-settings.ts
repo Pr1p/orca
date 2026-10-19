@@ -21,6 +21,7 @@ export type AgentLaunchSettingsSource = Partial<
     | 'agentCmdOverrides'
     | 'agentDefaultArgs'
     | 'agentDefaultEnv'
+    | 'agentPermissionMode'
   >
 >
 
@@ -84,7 +85,10 @@ export function agentLaunchSettingsMutationUpdates(
         mutation.enabled
       )
     case 'permissions':
-      return applyAgentPermissionMode({ ...settings, mode: mutation.mode })
+      return {
+        ...applyAgentPermissionMode({ ...settings, mode: mutation.mode }),
+        agentPermissionMode: mutation.mode
+      }
     case 'command': {
       const commands = { ...settings.agentCmdOverrides }
       if (mutation.value.trim()) {
