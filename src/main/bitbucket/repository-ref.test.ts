@@ -37,6 +37,14 @@ describe('Bitbucket repository refs', () => {
       workspace: 'team',
       repoSlug: 'project'
     })
+    expect(parseBitbucketRepoRef('git@ssh.bitbucket.org:team/project.git')).toEqual({
+      workspace: 'team',
+      repoSlug: 'project'
+    })
+    expect(parseBitbucketRepoRef('ssh://git@ssh.bitbucket.org/team/project.git')).toEqual({
+      workspace: 'team',
+      repoSlug: 'project'
+    })
     expect(parseBitbucketRepoRef('https://github.com/team/project.git')).toBeNull()
   })
 
