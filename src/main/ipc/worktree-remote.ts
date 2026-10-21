@@ -159,6 +159,7 @@ import {
   readWorktreeMetaForHost,
   worktreeRowTarget
 } from '../persistence/host-qualified-worktree-meta'
+import { resolveTrackableRemoteBranchRef } from '../git/worktree-remote-branch-adoption'
 // Why: bound the fallback `git fetch origin` so a Windows credential-manager GUI hang (STA-1292) can't wedge worktree creation forever.
 const CREATE_BASE_FALLBACK_FETCH_TIMEOUT_MS = 60_000
 // Why (#17828 CodeRabbit follow-up): the deferred materialize fetch runs off the main
@@ -1207,7 +1208,9 @@ async function performLocalWorktreeCreate(
   const branchConflictSubject = args.branchNameOverride ? 'branch name' : 'worktree name'
   let resolved = false
   let checkoutExistingBranch = false
+  let remoteTrackingBranchRef: string | null = null
   let selectedExistingLocalBranchName: string | null = null
+  let selectedRemoteBranchName: string | null = null
   let lastBranchConflictKind: 'local' | 'remote' | null = null
   let lastExistingPR: Awaited<ReturnType<typeof getPRForBranch>> | null = null
   let lastExistingReviewNumber: number | null = null
@@ -1240,13 +1243,15 @@ async function performLocalWorktreeCreate(
         continue
       }
       attempts += 1
+      remoteTrackingBranchRef = null
       lastExistingReviewNumber = null
 
       branchName = await resolveCreateBranchName(
         repo.path,
         selectedExistingLocalBranchName
           ? selectedExistingLocalBranchName
-          : getBranchNameOverrideCandidate(args.branchNameOverride, suffix),
+          : (selectedRemoteBranchName ??
+              getBranchNameOverrideCandidate(args.branchNameOverride, suffix)),
         effectiveSanitizedName,
         settings,
         username,
@@ -1316,6 +1321,26 @@ async function performLocalWorktreeCreate(
             }
           }
         }
+      }
+      if (
+        lastBranchConflictKind === 'remote' &&
+        args.branchNameOverride &&
+        !args.pushTarget &&
+        getSelectedReviewBranch(args) === null
+      ) {
+        remoteTrackingBranchRef = await resolveTrackableRemoteBranchRef(
+          repo.path,
+          branchName,
+          remoteTrackingBase?.remote,
+          localWorktreeGitOptions
+        )
+        if (!remoteTrackingBranchRef) {
+          throw new WorktreeCreateCollisionError(
+            `Branch "${branchName}" exists on a remote but cannot be adopted unambiguously. Choose a different branch name.`
+          )
+        }
+        lastBranchConflictKind = null
+        selectedRemoteBranchName = branchName
       }
       if (lastBranchConflictKind) {
         continue
@@ -1423,6 +1448,7 @@ async function performLocalWorktreeCreate(
   const remoteTrackingBaseOption = remoteTrackingBase ? { remoteTrackingBase } : undefined
   const existingBranchOption = {
     checkoutExistingBranch,
+    ...(remoteTrackingBranchRef ? { remoteTrackingBranchRef } : {}),
     ...remoteTrackingBaseOption,
     ...(suggestLocalBaseRefUpdate ? { suggestLocalBaseRefUpdate } : {})
   }
@@ -1431,11 +1457,16 @@ async function performLocalWorktreeCreate(
       ? { ...remoteTrackingBaseOption, suggestLocalBaseRefUpdate }
       : remoteTrackingBaseOption
   )
+  const newBranchOptions = addProjectGitOptions({
+    ...(remoteTrackingBranchRef ? { remoteTrackingBranchRef } : {}),
+    ...remoteTrackingBaseOption,
+    ...(suggestLocalBaseRefUpdate ? { suggestLocalBaseRefUpdate } : {})
+  })
   let addResult: AddWorktreeResult
   try {
     addResult =
       (await timing.time('git_worktree_add', async () => {
-        if (sparseDirectories.length === 0 && !checkoutExistingBranch) {
+        if (sparseDirectories.length === 0 && !checkoutExistingBranch && !remoteTrackingBranchRef) {
           const prepared = await consumePreparedWorktreeCreate({
             repoPath: repo.path,
             workspaceRoot,
@@ -1473,17 +1504,6 @@ async function performLocalWorktreeCreate(
               addProjectGitOptions(existingBranchOption)
             )
           }
-          if (suggestLocalBaseRefUpdate) {
-            return addSparseWorktree(
-              repo.path,
-              worktreePath,
-              branchName,
-              sparseDirectories,
-              baseBranch,
-              settings.refreshLocalBaseRefOnWorktreeCreate,
-              addProjectGitOptions({ ...remoteTrackingBaseOption, suggestLocalBaseRefUpdate })
-            )
-          }
           return addSparseWorktree(
             repo.path,
             worktreePath,
@@ -1491,7 +1511,7 @@ async function performLocalWorktreeCreate(
             sparseDirectories,
             baseBranch,
             settings.refreshLocalBaseRefOnWorktreeCreate,
-            addProjectGitOptions(remoteTrackingBaseOption)
+            newBranchOptions
           )
         }
 
@@ -1506,17 +1526,6 @@ async function performLocalWorktreeCreate(
             addProjectGitOptions(existingBranchOption)
           )
         }
-        if (suggestLocalBaseRefUpdate) {
-          return addWorktree(
-            repo.path,
-            worktreePath,
-            branchName,
-            baseBranch,
-            settings.refreshLocalBaseRefOnWorktreeCreate,
-            false,
-            addProjectGitOptions({ ...remoteTrackingBaseOption, suggestLocalBaseRefUpdate })
-          )
-        }
         return addWorktree(
           repo.path,
           worktreePath,
@@ -1524,7 +1533,7 @@ async function performLocalWorktreeCreate(
           baseBranch,
           settings.refreshLocalBaseRefOnWorktreeCreate,
           false,
-          addProjectGitOptions(remoteTrackingBaseOption)
+          newBranchOptions
         )
       })) ?? {}
   } catch (error) {

@@ -90,6 +90,7 @@ export async function createRuntimeLocalGitWorktree(args: {
   worktreePath: string
   effectiveSanitizedName?: string
   checkoutExistingBranch: boolean
+  remoteTrackingBranchRef?: string
   localWorktreeGitOptions: LocalGitExecOptions
   baseRefRefresh: RuntimeLocalBaseRefRefresh
   rearm: PreparationRearmHolder
@@ -125,7 +126,10 @@ export async function createRuntimeLocalGitWorktree(args: {
   }
   const addOptions: AddWorktreeOptions = {
     ...preparedWorktreeOptions,
-    ...(args.checkoutExistingBranch ? { checkoutExistingBranch: true } : {})
+    ...(args.checkoutExistingBranch ? { checkoutExistingBranch: true } : {}),
+    ...(args.remoteTrackingBranchRef
+      ? { remoteTrackingBranchRef: args.remoteTrackingBranchRef }
+      : {})
   }
   const shouldRetireGeneratedName =
     args.request.nameWasGenerated === true &&
@@ -134,7 +138,11 @@ export async function createRuntimeLocalGitWorktree(args: {
   let addResult: AddWorktreeResult
   try {
     addResult = await args.timing.time('git_worktree_add', async () => {
-      if (sparseDirectories.length > 0 || args.checkoutExistingBranch) {
+      if (
+        sparseDirectories.length > 0 ||
+        args.checkoutExistingBranch ||
+        args.remoteTrackingBranchRef
+      ) {
         args.timing.recordPreparedCheckout({
           status: 'miss',
           reason: sparseDirectories.length > 0 ? 'sparse_checkout' : 'checkout_existing_branch'

@@ -21,6 +21,8 @@ const mocks = vi.hoisted(() => ({
   hasBase: vi.fn(),
   branchName: vi.fn(),
   canCheckout: vi.fn(),
+  trackRemoteBranch: vi.fn(),
+  pathExists: vi.fn(),
   branchConflict: vi.fn(),
   githubPr: vi.fn(),
   consume: vi.fn(),
@@ -64,7 +66,10 @@ vi.mock('./runtime-worktree-create-git', () => ({
   getLocalGitHubPrForBranch: mocks.githubPr,
   getSelectedHostedReviewForBranch: vi.fn()
 }))
-vi.mock('./runtime-worktree-filesystem', () => ({ runtimePathExists: async () => false }))
+vi.mock('../git/worktree-remote-branch-adoption', () => ({
+  resolveTrackableRemoteBranchRef: mocks.trackRemoteBranch
+}))
+vi.mock('./runtime-worktree-filesystem', () => ({ runtimePathExists: mocks.pathExists }))
 vi.mock('../worktree-create-preparation', () => ({ consumePreparedWorktreeCreate: mocks.consume }))
 vi.mock('../git/worktree', () => ({ addWorktree: mocks.add, addSparseWorktree: mocks.addSparse }))
 vi.mock('../ipc/worktree-remote', () => ({ configureCreatedWorktreePushTarget: mocks.pushTarget }))
@@ -163,6 +168,8 @@ beforeEach(() => {
   mocks.hasBase.mockResolvedValue(true)
   mocks.branchName.mockResolvedValue('app')
   mocks.canCheckout.mockResolvedValue(false)
+  mocks.trackRemoteBranch.mockResolvedValue(null)
+  mocks.pathExists.mockResolvedValue(false)
   mocks.branchConflict.mockResolvedValue(null)
   mocks.githubPr.mockResolvedValue(null)
   mocks.consume.mockResolvedValue({ status: 'hit', result: {}, rearm: mocks.rearm })
@@ -492,6 +499,50 @@ describe('runtime create PR conflict probe', () => {
 
   beforeEach(() => {
     mocks.branchName.mockImplementation(async (_path, _override, name: string) => name)
+  })
+
+  it('creates an explicit remote-only branch as a tracking branch instead of suffixing it', async () => {
+    mocks.branchName.mockImplementation(async (_path, override, name: string) => override ?? name)
+    mocks.branchConflict.mockResolvedValue('remote')
+    mocks.trackRemoteBranch.mockResolvedValue('refs/remotes/origin/feature/test')
+
+    await createWorktree({ branchNameOverride: 'feature/test', baseBranch: 'origin/main' })
+
+    expect(mocks.trackRemoteBranch).toHaveBeenCalledWith('/repo', 'feature/test', undefined, {})
+    expect(mocks.consume).not.toHaveBeenCalled()
+    expect(mocks.add).toHaveBeenCalledWith(
+      '/repo',
+      worktreePath,
+      'feature/test',
+      'origin/main',
+      false,
+      false,
+      expect.objectContaining({ remoteTrackingBranchRef: 'refs/remotes/origin/feature/test' })
+    )
+  })
+
+  it('keeps an adopted remote branch when the first worktree path is occupied', async () => {
+    mocks.branchName.mockImplementation(async (_path, override, name: string) => override ?? name)
+    mocks.branchConflict.mockResolvedValue('remote')
+    mocks.trackRemoteBranch.mockResolvedValue('refs/remotes/origin/feature/test')
+    mocks.pathExists.mockResolvedValueOnce(true).mockResolvedValue(false)
+
+    await createWorktree({ branchNameOverride: 'feature/test', baseBranch: 'origin/main' })
+
+    expect(mocks.branchName.mock.calls.map(([, override]) => override)).toEqual([
+      'feature/test',
+      'feature/test'
+    ])
+    expect(mocks.trackRemoteBranch).toHaveBeenCalledTimes(2)
+    expect(mocks.add).toHaveBeenCalledWith(
+      '/repo',
+      resolve('/worktrees', 'app-2'),
+      'feature/test',
+      'origin/main',
+      false,
+      false,
+      expect.objectContaining({ remoteTrackingBranchRef: 'refs/remotes/origin/feature/test' })
+    )
   })
 
   it('runs the first name PR lookup while the base fetch is still in flight', async () => {

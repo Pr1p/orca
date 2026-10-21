@@ -33,6 +33,7 @@ import {
 } from './runtime-worktree-create-git'
 import { runtimePathExists } from './runtime-worktree-filesystem'
 import { findPendingWorktreeRemovalConflict } from '../worktree-removal-table'
+import { resolveTrackableRemoteBranchRef } from '../git/worktree-remote-branch-adoption'
 import type { RuntimeStore } from './runtime-store-contract'
 import type { HostedReviewExecutionOptions } from '../source-control/hosted-review-git-options'
 
@@ -43,6 +44,7 @@ export type RuntimeLocalWorktreeCreateCandidate = {
   effectiveSanitizedName: string
   branchName: string
   checkoutExistingBranch: boolean
+  remoteTrackingBranchRef?: string
   worktreePath: string
 }
 
@@ -58,6 +60,7 @@ export async function resolveRuntimeLocalWorktreeCreateCandidate(args: {
   username: string
   store?: RuntimeStore
   baseBranch: string
+  preferredRemote?: string
   localWorktreeGitOptions: { wslDistro?: string }
   hostedReviewExecutionContext?: HostedReviewExecutionOptions
 }): Promise<RuntimeLocalWorktreeCreateCandidate> {
@@ -66,7 +69,9 @@ export async function resolveRuntimeLocalWorktreeCreateCandidate(args: {
   let effectiveSanitizedName = sanitizedName
   let branchName = ''
   let checkoutExistingBranch = false
+  let remoteTrackingBranchRef: string | null = null
   let selectedExistingLocalBranchName: string | null = null
+  let selectedRemoteBranchName: string | null = null
   let branchConflictKind: 'local' | 'remote' | null = null
   let worktreePath = ''
   let worktreePathResolved = false
@@ -102,9 +107,11 @@ export async function resolveRuntimeLocalWorktreeCreateCandidate(args: {
       continue
     }
     attempts += 1
+    remoteTrackingBranchRef = null
     branchName = await resolveCreateBranchName(
       args.repo.path,
       selectedExistingLocalBranchName ??
+        selectedRemoteBranchName ??
         getBranchNameOverrideCandidate(args.request.branchNameOverride, suffix),
       effectiveSanitizedName,
       args.settings,
@@ -169,6 +176,26 @@ export async function resolveRuntimeLocalWorktreeCreateCandidate(args: {
           }
         }
       }
+      if (
+        branchConflictKind === 'remote' &&
+        args.request.branchNameOverride &&
+        !args.request.pushTarget &&
+        getSelectedReviewBranch(args.request) === null
+      ) {
+        remoteTrackingBranchRef = await resolveTrackableRemoteBranchRef(
+          args.repo.path,
+          branchName,
+          args.preferredRemote,
+          args.localWorktreeGitOptions
+        )
+        if (!remoteTrackingBranchRef) {
+          throw new WorktreeCreateCollisionError(
+            `Branch "${branchName}" exists on a remote but cannot be adopted unambiguously. Choose a different branch name.`
+          )
+        }
+        branchConflictKind = null
+        selectedRemoteBranchName = branchName
+      }
       if (branchConflictKind) {
         continue
       }
@@ -223,6 +250,7 @@ export async function resolveRuntimeLocalWorktreeCreateCandidate(args: {
     effectiveSanitizedName,
     branchName,
     checkoutExistingBranch,
+    ...(remoteTrackingBranchRef ? { remoteTrackingBranchRef } : {}),
     worktreePath
   }
 }

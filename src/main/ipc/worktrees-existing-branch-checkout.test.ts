@@ -15,6 +15,10 @@ import {
   type HostWorktreeTarget
 } from '../../shared/worktree/host-qualified-identity'
 
+const remoteBranchAdoptionMocks = vi.hoisted(() => ({
+  resolveTrackableRemoteBranchRef: vi.fn()
+}))
+
 vi.mock('electron', async () =>
   (await import('./worktrees-test-module-mocks')).electronModuleMock()
 )
@@ -27,6 +31,7 @@ vi.mock('../git/runner', async () =>
 vi.mock('../git/repo', async () =>
   (await import('./worktrees-test-module-mocks')).gitRepoModuleMock()
 )
+vi.mock('../git/worktree-remote-branch-adoption', () => remoteBranchAdoptionMocks)
 vi.mock('../git/git-username', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   resolveLocalGitUsername: (await import('./worktrees-test-module-mocks'))
@@ -100,6 +105,8 @@ describe('registerWorktreeHandlers', () => {
 
   beforeEach(() => {
     runtimeStub = setupWorktreeHandlers()
+    remoteBranchAdoptionMocks.resolveTrackableRemoteBranchRef.mockReset()
+    remoteBranchAdoptionMocks.resolveTrackableRemoteBranchRef.mockResolvedValue(null)
   })
 
   it('checks out a selected existing local branch exactly', async () => {
@@ -268,15 +275,18 @@ describe('registerWorktreeHandlers', () => {
     })
   })
 
-  it('suffixes branchNameOverride when the requested branch collides', async () => {
+  it('tracks an explicit remote-only branch instead of suffixing it', async () => {
     getBranchConflictKindMock.mockImplementation(async (_repoPath: string, branch: string) =>
       branch === 'feature/something' ? 'remote' : null
     )
+    remoteBranchAdoptionMocks.resolveTrackableRemoteBranchRef.mockResolvedValue(
+      'refs/remotes/origin/feature/something'
+    )
     listWorktreesMock.mockResolvedValue([
       {
-        path: '/workspace/feature-something-2',
+        path: '/workspace/feature-something',
         head: 'abc123',
-        branch: 'refs/heads/feature/something-2',
+        branch: 'refs/heads/feature/something',
         isBare: false,
         isMainWorktree: false
       }
@@ -288,18 +298,26 @@ describe('registerWorktreeHandlers', () => {
       branchNameOverride: 'feature/something'
     })
 
-    expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
-      ['check-ref-format', '--branch', 'feature/something-2'],
-      { cwd: '/workspace/repo' }
+    expect(getBranchConflictKindMock).toHaveBeenCalledWith(
+      '/workspace/repo',
+      'feature/something',
+      'origin/main',
+      {}
+    )
+    expect(remoteBranchAdoptionMocks.resolveTrackableRemoteBranchRef).toHaveBeenCalledWith(
+      '/workspace/repo',
+      'feature/something',
+      undefined,
+      {}
     )
     expect(addWorktreeMock).toHaveBeenCalledWith(
       '/workspace/repo',
-      '/workspace/feature-something-2',
-      'feature/something-2',
+      '/workspace/feature-something',
+      'feature/something',
       'origin/main',
       false,
       false,
-      {}
+      { remoteTrackingBranchRef: 'refs/remotes/origin/feature/something' }
     )
   })
 

@@ -157,6 +157,7 @@ async function performRuntimeLocalWorktreeCreate<T>(args: RuntimeLocalWorktreeCr
       username,
       store,
       baseBranch: base.baseBranch,
+      preferredRemote: base.remoteTrackingBase?.remote,
       localWorktreeGitOptions: worktreeGitOptions,
       hostedReviewExecutionContext: args.hostedReviewExecutionContext
     })
@@ -178,6 +179,7 @@ async function performRuntimeLocalWorktreeCreate<T>(args: RuntimeLocalWorktreeCr
       worktreePath: candidate.worktreePath,
       effectiveSanitizedName: candidate.effectiveSanitizedName,
       checkoutExistingBranch: candidate.checkoutExistingBranch,
+      remoteTrackingBranchRef: candidate.remoteTrackingBranchRef,
       localWorktreeGitOptions: worktreeGitOptions,
       baseRefRefresh,
       rearm: args.rearm,

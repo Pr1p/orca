@@ -33,6 +33,7 @@ export type AddWorktreeOptions = GitWorktreeExecOptions & {
   checkoutExistingBranch?: boolean
   /** Progress of the checkout `git worktree add` performs; never called for `--no-checkout`. */
   onCheckoutProgress?: WorktreeCheckoutProgressListener
+  remoteTrackingBranchRef?: string
   suggestLocalBaseRefUpdate?: boolean
   remoteTrackingBase?: {
     base: string

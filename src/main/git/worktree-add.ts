@@ -247,6 +247,9 @@ async function performAddWorktree(
   if (options.checkoutExistingBranch) {
     // Why: -b would create a new branch instead of checking out the selected one.
     args.push(worktreePath, branch)
+  } else if (options.remoteTrackingBranchRef) {
+    // Why: an explicitly named remote branch must retain its commits and upstream, never fall through to a suffixed branch from the selected base.
+    args.push('--track', '-b', branch, worktreePath, options.remoteTrackingBranchRef)
   } else {
     // Why: --no-track avoids inheriting the base's upstream so `git status` won't misreport "behind by N" pre-publish; first push sets it (see push.autoSetupRemote below).
     args.push('--no-track', '-b', branch, worktreePath)
@@ -287,7 +290,7 @@ async function performAddWorktree(
     invalidateWslLinkedWorktreeGitRouting(worktreePath)
   }
 
-  if (options.checkoutExistingBranch) {
+  if (options.checkoutExistingBranch || options.remoteTrackingBranchRef) {
     return {}
   }
 
