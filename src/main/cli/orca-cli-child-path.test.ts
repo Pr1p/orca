@@ -122,7 +122,7 @@ describe('prependOrcaCliDirToChildPath', () => {
 
   it('appends the bundled macOS CLI when the caller preserves user PATH precedence', () => {
     const env: Record<string, string> = {
-      PATH: `/Users/tester/override-bin:/opt/homebrew/bin:${join(RESOURCES, 'bin')}`
+      PATH: `/Users/tester/override-bin:${join(RESOURCES, 'bin')}/:/opt/homebrew/bin`
     }
     expect(
       prependOrcaCliDirToChildPath(env, {
@@ -139,7 +139,7 @@ describe('prependOrcaCliDirToChildPath', () => {
 
   it('leads packaged Windows PATH with the bundled CLI dir under the env block spelling', () => {
     const env: Record<string, string> = {
-      Path: 'C:\\Windows\\System32',
+      Path: `C:\\Windows\\System32;${join(RESOURCES, 'bin')}\\;C:\\Tools`,
       ORCA_CLI_BIN_DIR: '/parent-host/cli',
       ORCA_WSL_CLI_DIR: '/guest/orca/bin'
     }
@@ -149,7 +149,7 @@ describe('prependOrcaCliDirToChildPath', () => {
       resourcesPath: RESOURCES,
       platform: 'win32'
     })
-    expect(env.Path).toBe(`${join(RESOURCES, 'bin')};C:\\Windows\\System32`)
+    expect(env.Path).toBe(`${join(RESOURCES, 'bin')};C:\\Windows\\System32;C:\\Tools`)
     expect(env.PATH).toBeUndefined()
     expect(env.ORCA_CLI_BIN_DIR).toBeUndefined()
     expect(env.ORCA_WSL_CLI_DIR).toBe('/guest/orca/bin')

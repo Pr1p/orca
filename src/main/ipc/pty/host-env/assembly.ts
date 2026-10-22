@@ -30,6 +30,7 @@ import {
   resolveScopedPiAgentSourceDir
 } from './pi-agent'
 import { restoreOrStripOverlayEnv } from '../../../../shared/agent-overlay-env'
+import { quotePosixShellUnlessPlain } from '../../../../shared/shell-argument-quoting'
 import { AGENT_HOOK_RUNTIME_ENV_KEYS } from './spawn-env-keys'
 import { applyManagedDataAccountEnvironment } from '../../../managed-data-accounts/launch-environment'
 import { applyOpenCodeStatusPluginEnv, captureOpenCodeSourceConfig } from './opencode-config'
@@ -283,17 +284,17 @@ export function buildPtyHostEnv(
     }
     delete baseEnv.ORCA_CLI_COMMAND
   }
+  const preservesClaudePathPrecedence =
+    opts.launchAgent === 'claude' && process.platform === 'darwin'
   const orcaCliLauncher = prependOrcaCliDirToChildPath(baseEnv, {
     isPackaged: opts.isPackaged,
     userDataPath: opts.userDataPath,
     resourcesPath: opts.resourcesPath,
     // Claude retains the spawn PATH in its shell snapshot, so a prepended bundled CLI overrides
     // user-selected commands. Its absolute launcher still keeps Orca's own CLI available.
-    ...(opts.launchAgent === 'claude' && process.platform === 'darwin'
-      ? { pathPlacement: 'append' as const }
-      : {})
+    ...(preservesClaudePathPrecedence ? { pathPlacement: 'append' as const } : {})
   })
-  if (orcaCliLauncher && opts.launchAgent === 'claude' && process.platform === 'darwin') {
+  if (orcaCliLauncher && preservesClaudePathPrecedence) {
     baseEnv.ORCA_CLI_COMMAND = orcaCliLauncher
   }
 
@@ -302,7 +303,11 @@ export function buildPtyHostEnv(
     baseEnv.BROWSER === undefined &&
     process.env.BROWSER === undefined
   ) {
-    const cliCommand = opts.isWsl ? getWslCliCommandName(opts.isPackaged) : 'orca'
+    const cliCommand = opts.isWsl
+      ? getWslCliCommandName(opts.isPackaged)
+      : preservesClaudePathPrecedence && orcaCliLauncher
+        ? quotePosixShellUnlessPlain(orcaCliLauncher)
+        : 'orca'
     baseEnv.BROWSER = `${cliCommand} open-url --url %s`
   }
   // Browser-relayed and SSH-managed headless hosts both have viewers on another machine.

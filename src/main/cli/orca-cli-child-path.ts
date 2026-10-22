@@ -1,5 +1,5 @@
 // PTY and structured children must reach this app's CLI regardless of global registration.
-import { delimiter, dirname, join } from 'node:path'
+import { dirname, join, posix, win32 } from 'node:path'
 import { getAppEnvironment, hasAppEnvironment } from '../../shared/app-environment'
 import { readInheritedPath } from '../ipc/pty/host-env/path'
 import { resolvePathEnvKey } from '../pty/windows-environment-path'
@@ -17,19 +17,28 @@ export type OrcaCliChildPathOptions = {
   platform?: NodeJS.Platform
 }
 
-/** Return the launcher path so children can bypass login shells that reorder PATH; null if unavailable. */
+/** Inserts the current app's CLI after removing equivalent inherited PATH entries. */
 function placeCliDirOnPath(
   cliDir: string,
   inheritedPath: string,
+  platform: NodeJS.Platform,
   pathDelimiter: string,
   placement: 'append' | 'prepend'
 ): string {
+  const cliDirKey = pathEntryComparisonKey(cliDir, platform)
   const inheritedEntries = inheritedPath
     .split(pathDelimiter)
-    .filter((entry) => entry.length > 0 && entry !== cliDir)
+    .filter((entry) => entry.length > 0 && pathEntryComparisonKey(entry, platform) !== cliDirKey)
   return (
     placement === 'append' ? [...inheritedEntries, cliDir] : [cliDir, ...inheritedEntries]
   ).join(pathDelimiter)
+}
+
+/** Preserves the original PATH spelling while comparing equivalent directory entries. */
+function pathEntryComparisonKey(entry: string, platform: NodeJS.Platform): string {
+  const pathApi = platform === 'win32' ? win32 : posix
+  const normalized = pathApi.normalize(entry).replace(platform === 'win32' ? /[\\/]+$/ : /\/+$/, '')
+  return platform === 'win32' ? normalized.toLowerCase() : normalized
 }
 
 /**
@@ -45,14 +54,14 @@ export function prependOrcaCliDirToChildPath(
   const platform = opts.platform ?? process.platform
   const pathPlacement = opts.pathPlacement ?? 'prepend'
   delete env.ORCA_CLI_BIN_DIR
-  // Honor injected Windows platforms when tests run on another host.
-  const pathDelimiter = platform === 'win32' ? ';' : delimiter
+  const pathDelimiter = platform === 'win32' ? ';' : ':'
   const hostLauncher = hasAppEnvironment() ? getAppEnvironment().getCliLauncherPath?.() : null
   if (hostLauncher) {
     const binDir = dirname(hostLauncher)
     env[resolvePathEnvKey(env, platform)] = placeCliDirOnPath(
       binDir,
       readInheritedPath(env, platform),
+      platform,
       pathDelimiter,
       pathPlacement
     )
@@ -94,6 +103,7 @@ export function prependOrcaCliDirToChildPath(
     env[resolvePathEnvKey(env, platform)] = placeCliDirOnPath(
       bundledCliBin,
       readInheritedPath(env, platform),
+      platform,
       pathDelimiter,
       pathPlacement
     )
