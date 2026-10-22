@@ -283,11 +283,19 @@ export function buildPtyHostEnv(
     }
     delete baseEnv.ORCA_CLI_COMMAND
   }
-  prependOrcaCliDirToChildPath(baseEnv, {
+  const orcaCliLauncher = prependOrcaCliDirToChildPath(baseEnv, {
     isPackaged: opts.isPackaged,
     userDataPath: opts.userDataPath,
-    resourcesPath: opts.resourcesPath
+    resourcesPath: opts.resourcesPath,
+    // Claude retains the spawn PATH in its shell snapshot, so a prepended bundled CLI overrides
+    // user-selected commands. Its absolute launcher still keeps Orca's own CLI available.
+    ...(opts.launchAgent === 'claude' && process.platform === 'darwin'
+      ? { pathPlacement: 'append' as const }
+      : {})
   })
+  if (orcaCliLauncher && opts.launchAgent === 'claude' && process.platform === 'darwin') {
+    baseEnv.ORCA_CLI_COMMAND = orcaCliLauncher
+  }
 
   if (
     opts.routeBrowserOpensToClient === true &&
