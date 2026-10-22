@@ -106,6 +106,37 @@ describe('registerPtyHandlers', () => {
       }
     )
 
+    it('keeps the login-shell PATH ahead of the bundled CLI for a macOS Claude launch', () => {
+      const originalPlatform = process.platform
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'darwin' })
+      try {
+        const resourcesPath = '/Applications/Orca.app/Contents/Resources'
+        const env = buildPtyHostEnv(
+          'claude-path-order',
+          { PATH: '/Users/tester/override-bin:/opt/homebrew/bin:/usr/bin' },
+          {
+            isPackaged: true,
+            resourcesPath,
+            userDataPath: '/tmp/orca-user-data',
+            selectedCodexHomePath: null,
+            agentStatusHooksEnabled: false,
+            launchAgent: 'claude'
+          }
+        )
+
+        expect(env.PATH).toBe(
+          `/Users/tester/override-bin:/opt/homebrew/bin:/usr/bin:${join(resourcesPath, 'bin')}`
+        )
+        expect(env.ORCA_CLI_BIN_DIR).toBeUndefined()
+        expect(env.ORCA_CLI_COMMAND).toBe(join(resourcesPath, 'bin', 'orca'))
+      } finally {
+        Object.defineProperty(process, 'platform', {
+          configurable: true,
+          value: originalPlatform
+        })
+      }
+    })
+
     it.each(['pi', 'omp', 'prime-agent'] as const)(
       'prepares delayed %s hooks for the requested harness',
       (agent) => {
