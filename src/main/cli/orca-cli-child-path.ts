@@ -13,7 +13,7 @@
  * every branch behaves exactly as it did inside `buildPtyHostEnv`.
  */
 
-import { dirname, join } from 'node:path'
+import { dirname, join, posix, win32 } from 'node:path'
 import { getAppEnvironment, hasAppEnvironment } from '../../shared/app-environment'
 import { readInheritedPath } from '../ipc/pty/host-env/path'
 import { resolvePathEnvKey } from '../pty/windows-environment-path'
@@ -31,18 +31,28 @@ export type OrcaCliChildPathOptions = {
   platform?: NodeJS.Platform
 }
 
+/** Inserts the current app's CLI after removing equivalent inherited PATH entries. */
 function placeCliDirOnPath(
   cliDir: string,
   inheritedPath: string,
+  platform: NodeJS.Platform,
   pathDelimiter: string,
   placement: 'append' | 'prepend'
 ): string {
+  const cliDirKey = pathEntryComparisonKey(cliDir, platform)
   const inheritedEntries = inheritedPath
     .split(pathDelimiter)
-    .filter((entry) => entry.length > 0 && entry !== cliDir)
+    .filter((entry) => entry.length > 0 && pathEntryComparisonKey(entry, platform) !== cliDirKey)
   return (
     placement === 'append' ? [...inheritedEntries, cliDir] : [cliDir, ...inheritedEntries]
   ).join(pathDelimiter)
+}
+
+/** Preserves the original PATH spelling while comparing equivalent directory entries. */
+function pathEntryComparisonKey(entry: string, platform: NodeJS.Platform): string {
+  const pathApi = platform === 'win32' ? win32 : posix
+  const normalized = pathApi.normalize(entry).replace(platform === 'win32' ? /[\\/]+$/ : /\/+$/, '')
+  return platform === 'win32' ? normalized.toLowerCase() : normalized
 }
 
 /**
@@ -67,6 +77,7 @@ export function prependOrcaCliDirToChildPath(
     env[resolvePathEnvKey(env, platform)] = placeCliDirOnPath(
       binDir,
       readInheritedPath(env, platform),
+      platform,
       pathDelimiter,
       pathPlacement
     )
@@ -109,6 +120,7 @@ export function prependOrcaCliDirToChildPath(
     env[resolvePathEnvKey(env, platform)] = placeCliDirOnPath(
       bundledCliBin,
       readInheritedPath(env, platform),
+      platform,
       pathDelimiter,
       pathPlacement
     )
