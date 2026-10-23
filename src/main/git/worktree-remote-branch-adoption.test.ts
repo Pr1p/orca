@@ -40,6 +40,12 @@ describe('resolveTrackableRemoteBranchRef real Git contract', () => {
     await expect(resolve('origin')).resolves.toBeNull()
     git('update-ref', 'refs/remotes/fork/feature/test', 'HEAD')
     await expect(resolve('origin')).resolves.toBe('refs/remotes/fork/feature/test')
+    git(
+      'update-ref',
+      'refs/remotes/origin/feature/test',
+      git('hash-object', '-w', 'fixture.txt').trim()
+    )
+    await expect(resolve('origin')).resolves.toBe('refs/remotes/fork/feature/test')
     git('update-ref', 'refs/remotes/origin/feature/test', 'HEAD')
     await expect(resolve('origin')).resolves.toBe('refs/remotes/origin/feature/test')
     await expect(resolve('fork')).resolves.toBe('refs/remotes/fork/feature/test')

@@ -19,7 +19,9 @@ export async function resolveTrackableRemoteBranchRef(
   const candidates = buildRemoteBranchRefs(remoteNames, branchName)
   const { presentRefs: matches } = await probeExactRefs(
     (argv) => gitExecFileAsync(argv, gitExecOptions(repoPath, options)),
-    candidates
+    candidates,
+    {},
+    'commit'
   )
 
   if (preferredRemote) {
