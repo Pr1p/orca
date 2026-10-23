@@ -95,6 +95,15 @@ describe('buildAutomationHostCatalog', () => {
     expect(self.owner).toEqual({ authority: { kind: 'desktop' }, selector: { kind: 'self' } })
   })
 
+  it('can omit the desktop authority when a web client reaches its paired runtime', () => {
+    const catalog = buildAutomationHostCatalog(
+      buildInput({ includeDesktopAuthority: false, runtimes: [runtime()] })
+    )
+
+    expect(catalog.entries.map((entry) => entry.stableKey)).toEqual([runtimeSelfKey('env-1')])
+    expect(catalog.hydration.desktopSshHydrated).toBe(true)
+  })
+
   it('keeps equal SSH target ids under Desktop and a runtime distinct', () => {
     const catalog = buildAutomationHostCatalog(
       buildInput({

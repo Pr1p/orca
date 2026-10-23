@@ -106,6 +106,8 @@ export type AutomationRuntimeAuthorityInput = {
 
 export type AutomationHostCatalogInput = {
   desktop: AutomationDesktopAuthorityInput
+  /** Web clients reach their paired server through the runtime authority, not local desktop IPC. */
+  includeDesktopAuthority?: boolean
   /** Saved runtime environments — projected even while offline. */
   runtimes: readonly AutomationRuntimeAuthorityInput[]
   /** Gates Runtime+Self absence; a failed catalog read settles without hydrating. */

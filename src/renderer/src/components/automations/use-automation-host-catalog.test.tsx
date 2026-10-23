@@ -163,6 +163,7 @@ afterEach(async () => {
   await act(async () => {
     roots.splice(0).forEach((root) => root.unmount())
   })
+  Reflect.deleteProperty(window, '__ORCA_WEB_CLIENT__')
   document.body.innerHTML = ''
 })
 
@@ -179,6 +180,23 @@ describe('useAutomationHostCatalog orphan bootstrap', () => {
 })
 
 describe('useAutomationHostCatalog legacy partitioning', () => {
+  it('uses only the paired runtime authority from a web client', async () => {
+    Object.assign(window, { __ORCA_WEB_CLIENT__: true })
+
+    await renderCatalog([repo({ id: PROJECT_ID, executionHostId: `runtime:${ENVIRONMENT_ID}` })])
+
+    expect(view?.catalog.entries.map((entry) => entry.stableRef)).toEqual([
+      { authority: { kind: 'runtime', environmentId: ENVIRONMENT_ID }, selector: { kind: 'self' } }
+    ])
+    expect(mocks.callRuntimeRpc).toHaveBeenCalledWith(
+      { kind: 'environment', environmentId: ENVIRONMENT_ID },
+      'automation.list',
+      null,
+      expect.anything()
+    )
+    expect(desktopListScoped).not.toHaveBeenCalled()
+  })
+
   it('does not let a same-id desktop project claim an old runtime record for Self', async () => {
     await renderCatalog([repo({ id: PROJECT_ID })])
 

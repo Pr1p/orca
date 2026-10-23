@@ -248,17 +248,24 @@ export function buildAutomationHostCatalog(
 ): AutomationHostCatalog {
   const referenced = groupReferencedKeys(input.referencedStableKeys)
   const desktopAuthority: StableAutomationAuthorityRef = { kind: 'desktop' }
+  const desktopContexts: AuthorityProjectionContext[] =
+    input.includeDesktopAuthority === false
+      ? []
+      : [
+          {
+            authority: desktopAuthority,
+            authorityLabel: input.desktop.label,
+            authorityHealth: input.desktop.authorityHealth ?? 'fresh',
+            querySupport: 'scoped',
+            pairingRevision: null,
+            ssh: input.desktop.ssh,
+            referenced:
+              referenced.get(automationAuthorityCatalogKey(desktopAuthority)) ?? EMPTY_SCOPE,
+            orphanCount: input.desktop.orphanCount
+          }
+        ]
   const contexts: AuthorityProjectionContext[] = [
-    {
-      authority: desktopAuthority,
-      authorityLabel: input.desktop.label,
-      authorityHealth: input.desktop.authorityHealth ?? 'fresh',
-      querySupport: 'scoped',
-      pairingRevision: null,
-      ssh: input.desktop.ssh,
-      referenced: referenced.get(automationAuthorityCatalogKey(desktopAuthority)) ?? EMPTY_SCOPE,
-      orphanCount: input.desktop.orphanCount
-    },
+    ...desktopContexts,
     ...input.runtimes.map((runtime): AuthorityProjectionContext => {
       const authority: StableAutomationAuthorityRef = {
         kind: 'runtime',
@@ -283,7 +290,8 @@ export function buildAutomationHostCatalog(
     byStableKey,
     hydration: {
       runtimeCatalogSettled: input.runtimeCatalogSettled,
-      desktopSshHydrated: input.desktop.ssh.targetsHydrated,
+      desktopSshHydrated:
+        input.includeDesktopAuthority === false || input.desktop.ssh.targetsHydrated,
       runtimeSshHydratedByEnvironmentId: new Map(
         input.runtimes.map((runtime) => [runtime.environmentId, runtime.ssh.targetsHydrated])
       ),
