@@ -18,13 +18,19 @@ function normalizeLinearIssueDescriptionForComparison(description: string): stri
   const pending: Nodes[] = [markdown.parse(description)]
   while (pending.length > 0) {
     const node = pending.pop()
-    if (!node) continue
+    if (!node) {
+      continue
+    }
     if (node.type === 'list' && !node.ordered) {
       for (const item of node.children) {
         const offset = item.position?.start.offset
-        if (offset === undefined) continue
+        if (offset === undefined) {
+          continue
+        }
         const source = description.slice(offset, item.position?.end.offset)
-        if (!/^[-*] (?=\S)/.test(source)) continue
+        if (!/^[-*] (?=\S)/.test(source)) {
+          continue
+        }
         replacements.set(offset, '*')
         const taskNumber = /^[-*] \[[ xX]\] \d+(\\)\.(?=\s)/.exec(source)
         if (item.checked !== null && item.checked !== undefined && taskNumber) {
@@ -32,10 +38,15 @@ function normalizeLinearIssueDescriptionForComparison(description: string): stri
         }
       }
     }
-    if ('children' in node) pending.push(...node.children)
+    if ('children' in node) {
+      pending.push(...node.children)
+    }
   }
   // Keep all other source bytes literal, including code, HTML, and unrelated Markdown syntax.
-  return description.replace(/[-*\\]/g, (character, offset) => replacements.get(offset) ?? character)
+  return description.replace(
+    /[-*\\]/g,
+    (character, offset) => replacements.get(offset) ?? character
+  )
 }
 
 export class RuntimeLinearSaveFieldCommands extends RuntimeLinearTaskFieldCommands {

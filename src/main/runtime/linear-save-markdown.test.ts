@@ -1,11 +1,12 @@
 import { createServer, type Server } from 'node:http'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import type * as linearClient from '../linear/client'
 import { RuntimeLinearSaveCommands } from './runtime-linear-save-commands'
 import { loadLinearSdk } from '../linear/linear-sdk'
 
 const boundary = vi.hoisted(() => ({ clients: vi.fn(), status: vi.fn(), signing: vi.fn() }))
 vi.mock('../linear/client', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../linear/client')>()),
+  ...(await importOriginal<typeof linearClient>()),
   getClients: boundary.clients,
   getStatus: boundary.status,
   getPublicFileUrlClient: boundary.signing
@@ -78,7 +79,9 @@ beforeEach(async () => {
   })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const address = server.address()
-  if (!address || typeof address === 'string') throw new Error('No localhost address')
+  if (!address || typeof address === 'string') {
+    throw new Error('No localhost address')
+  }
   const apiUrl = `http://127.0.0.1:${address.port}/graphql`
   vi.spyOn(globalThis, 'fetch').mockImplementation((_input, init) => nativeFetch(apiUrl, init))
   const createClient = (signal?: AbortSignal) =>
@@ -102,11 +105,19 @@ afterEach(async () => {
 function commands() {
   return new RuntimeLinearSaveCommands({
     runtimeAvailable: () => true,
-    showTerminal: async () => { throw new Error('No terminal in HTTP proof') },
-    resolveWorktreeSelector: async () => { throw new Error('No workspace resolution in HTTP proof') },
+    showTerminal: async () => {
+      throw new Error('No terminal in HTTP proof')
+    },
+    resolveWorktreeSelector: async () => {
+      throw new Error('No workspace resolution in HTTP proof')
+    },
     listResolvedWorktrees: async () => [],
-    setWorktreeMeta: () => { throw new Error('Unexpected workspace metadata write') },
-    emitClientEvent: () => { throw new Error('Unexpected event') }
+    setWorktreeMeta: () => {
+      throw new Error('Unexpected workspace metadata write')
+    },
+    emitClientEvent: () => {
+      throw new Error('Unexpected event')
+    }
   })
 }
 
@@ -122,7 +133,7 @@ it.each([
     saved: '- [ ] 1\\. Share `outcome`: ...'
   }
 ])('confirms $name and makes an identical retry a no-op', async ({ requested, saved }) => {
-  rewrite = (description) => description === requested ? saved : description
+  rewrite = (description) => (description === requested ? saved : description)
   const runtime = commands()
   const request = { input: stored.identifier, description: requested, workspaceId: workspace.id }
   await expect(runtime.linearSaveIssue(request)).resolves.toMatchObject({
@@ -146,12 +157,15 @@ it.each([
   ])
 })
 
-
 it.each([
   ['fenced code', '```text\n- literal\n```', '```text\n* literal\n```'],
   ['unterminated code', '```text\n- literal', '```text\n* literal'],
   ['list-contained code', '- ```text\n  - literal\n  ```', '- ```text\n  * literal\n  ```'],
-  ['nested code', '- parent\n  - ```text\n    - literal\n    ```', '- parent\n  - ```text\n    * literal\n    ```'],
+  [
+    'nested code',
+    '- parent\n  - ```text\n    - literal\n    ```',
+    '- parent\n  - ```text\n    * literal\n    ```'
+  ],
   ['quoted code', '> ```text\n> - literal\n> ```', '> ```text\n> * literal\n> ```'],
   ['indented code', '    - literal', '    * literal'],
   ['tab-indented code', '\t- literal', '\t* literal'],
@@ -167,11 +181,13 @@ it.each([
   ['line endings', '- first\r\n- second', '* first\n* second']
 ])('sends meaningful %s edits instead of skipping the write', async (_name, current, requested) => {
   stored.description = current
-  await expect(commands().linearSaveIssue({
-    input: stored.identifier,
-    description: requested,
-    workspaceId: workspace.id
-  })).resolves.toMatchObject({ issue: { description: requested } })
+  await expect(
+    commands().linearSaveIssue({
+      input: stored.identifier,
+      description: requested,
+      workspaceId: workspace.id
+    })
+  ).resolves.toMatchObject({ issue: { description: requested } })
   const mutations = sent.filter(({ query }) => query.includes('mutation'))
   expect(mutations).toHaveLength(1)
   expect(mutations[0]?.variables.input).toEqual({ description: requested })
@@ -181,22 +197,26 @@ it.each([
 it('rejects a literal code change in the read-back after a successful mutation', async () => {
   const requested = '<pre>\n- literal\n</pre>'
   rewrite = () => '<pre>\n* literal\n</pre>'
-  await expect(commands().linearSaveIssue({
-    input: stored.identifier,
-    description: requested,
-    workspaceId: workspace.id
-  })).rejects.toMatchObject({ code: 'linear_write_unconfirmed' })
+  await expect(
+    commands().linearSaveIssue({
+      input: stored.identifier,
+      description: requested,
+      workspaceId: workspace.id
+    })
+  ).rejects.toMatchObject({ code: 'linear_write_unconfirmed' })
   expect(sent.filter(({ query }) => query.includes('mutation'))).toHaveLength(1)
 })
 
 it('still writes other fields when the description already matches after normalization', async () => {
   stored.description = '* first'
-  await expect(commands().linearSaveIssue({
-    input: stored.identifier,
-    title: 'Changed title',
-    description: '- first',
-    workspaceId: workspace.id
-  })).resolves.toMatchObject({ issue: { title: 'Changed title', description: '- first' } })
+  await expect(
+    commands().linearSaveIssue({
+      input: stored.identifier,
+      title: 'Changed title',
+      description: '- first',
+      workspaceId: workspace.id
+    })
+  ).resolves.toMatchObject({ issue: { title: 'Changed title', description: '- first' } })
   const mutations = sent.filter(({ query }) => query.includes('mutation'))
   expect(mutations).toHaveLength(1)
   expect(mutations[0]?.variables.input).toEqual({ title: 'Changed title', description: '- first' })
