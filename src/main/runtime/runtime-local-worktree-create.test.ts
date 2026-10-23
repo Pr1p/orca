@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolve } from 'node:path'
+import * as gitRunner from '../git/runner'
+import type * as RemoteBranchAdoption from '../git/worktree-remote-branch-adoption'
 import type { Store } from '../persistence'
 import type { WorktreeMeta } from '../../shared/worktree/meta-types'
 import type { HostWorktreeTarget } from '../../shared/worktree/host-qualified-identity'
@@ -506,22 +508,42 @@ describe('runtime create PR conflict probe', () => {
     async (occupied) => {
       mocks.branchName.mockImplementation(async (_path, override, name: string) => override ?? name)
       mocks.branchConflict.mockResolvedValue('remote')
-      mocks.trackRemoteBranch.mockResolvedValue('refs/remotes/origin/feature/test')
+      const { resolveTrackableRemoteBranchRef } = await vi.importActual<
+        typeof RemoteBranchAdoption
+      >('../git/worktree-remote-branch-adoption')
+      mocks.trackRemoteBranch.mockImplementation(resolveTrackableRemoteBranchRef)
+      mocks.routing.mockReturnValue({ wslDistro: 'Ubuntu' })
+      mocks.remoteBase.mockResolvedValue(remoteTrackingBase)
+      const remotes = ['origin', 'upstream', 'fork']
+      const gitExec = vi.spyOn(gitRunner, 'gitExecFileAsync').mockImplementation(async (argv) => ({
+        stdout: argv[0] === 'remote' ? remotes.join('\n') : 'a'.repeat(40),
+        stderr: ''
+      }))
       mocks.githubPr.mockResolvedValue({ number: 42 })
       let pathChecks = 0
       mocks.pathExists.mockImplementation(async () => pathChecks++ < occupied)
 
-      await createWorktree({
-        branchNameOverride: 'feature/test',
-        branchIntent: 'open-existing',
-        baseBranch: 'origin/main'
-      })
+      try {
+        await createWorktree({
+          branchNameOverride: 'feature/test',
+          branchIntent: 'open-existing',
+          baseBranch: 'origin/main'
+        })
 
-      expect(mocks.branchName).toHaveBeenCalledTimes(1)
-      expect(mocks.trackRemoteBranch).toHaveBeenCalledTimes(1)
-      expect(mocks.branchConflict).toHaveBeenCalledTimes(1)
+        expect(gitExec).toHaveBeenCalledTimes(1 + remotes.length)
+        const options = { cwd: '/repo', wslDistro: 'Ubuntu' }
+        expect(gitExec).toHaveBeenCalledWith(['remote'], options)
+        for (const remote of remotes) {
+          const ref = `refs/remotes/${remote}/feature/test^{commit}`
+          expect(gitExec).toHaveBeenCalledWith(['rev-parse', '--verify', '--quiet', ref], options)
+        }
+      } finally {
+        gitExec.mockRestore()
+      }
+      expect(mocks.pathExists).toHaveBeenCalledTimes(occupied + 1)
       expect(mocks.githubPr).not.toHaveBeenCalled()
       expect(mocks.consume).not.toHaveBeenCalled()
+      expect(mocks.add).toHaveBeenCalledTimes(1)
       expect(mocks.add).toHaveBeenCalledWith(
         '/repo',
         resolve('/worktrees', `app-${occupied + 1}`),
@@ -529,7 +551,10 @@ describe('runtime create PR conflict probe', () => {
         'origin/main',
         false,
         false,
-        expect.objectContaining({ remoteTrackingBranchRef: 'refs/remotes/origin/feature/test' })
+        expect.objectContaining({
+          remoteTrackingBranchRef: 'refs/remotes/origin/feature/test',
+          wslDistro: 'Ubuntu'
+        })
       )
     }
   )
