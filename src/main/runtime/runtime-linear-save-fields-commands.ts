@@ -1,3 +1,7 @@
+import type { Nodes } from 'mdast'
+import remarkGfm from 'remark-gfm'
+import remarkParse from 'remark-parse'
+import { unified } from 'unified'
 import {
   type getLinearIssueByUuidForAgent,
   type LinearIssueUpdate,
@@ -7,55 +11,31 @@ import {
 import { linearError } from '../linear/issue-context/errors'
 import { RuntimeLinearTaskFieldCommands } from './runtime-linear-task-fields-commands'
 
-type MarkdownFence = {
-  marker: string
-  closingIndent: number
-}
+const markdown = unified().use(remarkParse).use(remarkGfm)
 
-/** Detects fence openers in ordinary and list-contained Markdown blocks. */
-function openingCodeFence(line: string): MarkdownFence | undefined {
-  const ordinaryFence = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1]
-  if (ordinaryFence) {
-    return { marker: ordinaryFence, closingIndent: 3 }
-  }
-  const listFence = /^( {0,3}(?:[-*+] |\d+[.)] ))(`{3,}|~{3,})/.exec(line)
-  return listFence ? { marker: listFence[2], closingIndent: listFence[1].length } : undefined
-}
-
-/** A valid closer stays within its container indentation and has no trailing content. */
-function closingCodeFence(line: string, maximumIndent: number): string | undefined {
-  const closingFence = /^( *)(`{3,}|~{3,})[ \t]*$/.exec(line)
-  return closingFence && closingFence[1].length <= maximumIndent ? closingFence[2] : undefined
-}
-
-/** Ignores only the Markdown rewrites Linear performs outside code blocks. */
 function normalizeLinearIssueDescriptionForComparison(description: string): string {
-  let codeFence: MarkdownFence | null = null
-
-  return description
-    .split('\n')
-    .map((line) => {
-      if (codeFence !== null) {
-        const closingFence = closingCodeFence(line, codeFence.closingIndent)
-        if (
-          closingFence?.[0] === codeFence.marker[0] &&
-          closingFence.length >= codeFence.marker.length
-        ) {
-          codeFence = null
+  const replacements = new Map<number, string>()
+  const pending: Nodes[] = [markdown.parse(description)]
+  while (pending.length > 0) {
+    const node = pending.pop()
+    if (!node) continue
+    if (node.type === 'list' && !node.ordered) {
+      for (const item of node.children) {
+        const offset = item.position?.start.offset
+        if (offset === undefined) continue
+        const source = description.slice(offset, item.position?.end.offset)
+        if (!/^[-*] (?=\S)/.test(source)) continue
+        replacements.set(offset, '*')
+        const taskNumber = /^[-*] \[[ xX]\] \d+(\\)\.(?=\s)/.exec(source)
+        if (item.checked !== null && item.checked !== undefined && taskNumber) {
+          replacements.set(offset + taskNumber[0].length - 2, '')
         }
-        return line
       }
-
-      const openingFence = openingCodeFence(line)
-      if (openingFence) {
-        codeFence = openingFence
-      }
-
-      return line
-        .replace(/^( {0,3})[-*] (?=\S)/, '$1* ')
-        .replace(/^( {0,3}[-*] \[[ xX]\] \d+)\\\.(?=\s)/, '$1.')
-    })
-    .join('\n')
+    }
+    if ('children' in node) pending.push(...node.children)
+  }
+  // Keep all other source bytes literal, including code, HTML, and unrelated Markdown syntax.
+  return description.replace(/[-*\\]/g, (character, offset) => replacements.get(offset) ?? character)
 }
 
 export class RuntimeLinearSaveFieldCommands extends RuntimeLinearTaskFieldCommands {
@@ -68,6 +48,7 @@ export class RuntimeLinearSaveFieldCommands extends RuntimeLinearTaskFieldComman
     }
     if (
       fields.description !== undefined &&
+      (issue.description ?? '') !== fields.description &&
       normalizeLinearIssueDescriptionForComparison(issue.description ?? '') !==
         normalizeLinearIssueDescriptionForComparison(fields.description)
     ) {
