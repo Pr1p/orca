@@ -28,7 +28,8 @@ describe('resolveTrackableRemoteBranchRef real Git contract', () => {
     git('add', 'fixture.txt')
     git('commit', '--quiet', '-m', 'base')
     for (const remote of remotes) {
-      git('remote', 'add', remote, 'https://example.test/repo.git')
+      git('config', `remote.${remote}.url`, 'https://example.test/repo.git')
+      git('config', `remote.${remote}.fetch`, `+refs/heads/*:refs/remotes/${remote}/*`)
     }
     return { repoPath, git }
   }
