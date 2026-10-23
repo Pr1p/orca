@@ -141,7 +141,7 @@ export async function createRuntimeLocalGitWorktree(args: {
       if (
         sparseDirectories.length > 0 ||
         args.checkoutExistingBranch ||
-        args.remoteTrackingBranchRef
+        args.request.branchIntent === 'open-existing'
       ) {
         args.timing.recordPreparedCheckout({
           status: 'miss',

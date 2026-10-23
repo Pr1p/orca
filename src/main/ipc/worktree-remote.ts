@@ -1115,6 +1115,7 @@ async function performLocalWorktreeCreate(
   }
 
   let remoteTrackingBase: RemoteTrackingBase | null = null
+  let preferredRemote: string | undefined
   let baseFallback: WorktreeCreateBaseFallback | undefined
   let remoteTrackingRefresh: {
     base: RemoteTrackingBase
@@ -1129,6 +1130,7 @@ async function performLocalWorktreeCreate(
       baseBranch,
       ...localWorktreeGitOptionArgs
     )
+    preferredRemote = remoteTrackingBase?.remote
     if (remoteTrackingBase) {
       const [hasRemoteTrackingBaseRef, hasNamedLocalBaseRef] = await Promise.all([
         runtime.hasRemoteTrackingRef(repo.path, remoteTrackingBase, ...localWorktreeGitOptionArgs),
@@ -1216,6 +1218,55 @@ async function performLocalWorktreeCreate(
   let lastExistingReviewNumber: number | null = null
   const shouldRetireGeneratedName =
     args.nameWasGenerated === true && isGeneratedWorktreeCreateName(sanitizedName)
+  if (
+    args.branchIntent === 'open-existing' &&
+    args.branchNameOverride &&
+    !args.pushTarget &&
+    getSelectedReviewBranch(args) === null
+  ) {
+    branchName = await resolveCreateBranchName(
+      repo.path,
+      args.branchNameOverride,
+      sanitizedName,
+      settings,
+      username,
+      localWorktreeGitOptions
+    )
+    const conflict = await getBranchConflictKind(
+      repo.path,
+      branchName,
+      baseBranch,
+      localWorktreeGitOptions
+    )
+    if (conflict !== 'local') {
+      const ref = await resolveTrackableRemoteBranchRef(
+        repo.path,
+        branchName,
+        preferredRemote,
+        localWorktreeGitOptions
+      )
+      if (ref) {
+        selectedRemoteBranchName = branchName
+        const selectedBase = baseBranch.startsWith('refs/remotes/')
+          ? baseBranch
+          : `refs/remotes/${baseBranch}`
+        remoteTrackingBranchRef = ref === selectedBase ? null : ref
+      } else if (conflict === 'remote') {
+        throw new WorktreeCreateCollisionError(
+          `Branch "${branchName}" exists on a remote but cannot be adopted unambiguously. Choose a different branch name.`
+        )
+      }
+    }
+  }
+  const pathIsAvailable = (): boolean => {
+    worktreePath = ensurePathWithinWorkspace(
+      computeWorktreePath(effectiveSanitizedName, repo.path, worktreePathSettings, workspaceRoot),
+      workspaceRoot
+    )
+    return (
+      !existsSync(worktreePath) && !findPendingWorktreeRemovalConflict(repo.path, { worktreePath })
+    )
+  }
   await timing.time('resolve_name', async () => {
     const retiredNameRegistry = shouldRetireGeneratedName
       ? await getRetiredNameRegistryForRepo(store, repo, store.getRepos(), settings)
@@ -1243,15 +1294,20 @@ async function performLocalWorktreeCreate(
         continue
       }
       attempts += 1
-      remoteTrackingBranchRef = null
+      if (selectedRemoteBranchName) {
+        if (pathIsAvailable()) {
+          resolved = true
+          break
+        }
+        continue
+      }
       lastExistingReviewNumber = null
 
       branchName = await resolveCreateBranchName(
         repo.path,
         selectedExistingLocalBranchName
           ? selectedExistingLocalBranchName
-          : (selectedRemoteBranchName ??
-              getBranchNameOverrideCandidate(args.branchNameOverride, suffix)),
+          : getBranchNameOverrideCandidate(args.branchNameOverride, suffix),
         effectiveSanitizedName,
         settings,
         username,
@@ -1322,26 +1378,6 @@ async function performLocalWorktreeCreate(
           }
         }
       }
-      if (
-        lastBranchConflictKind === 'remote' &&
-        args.branchNameOverride &&
-        !args.pushTarget &&
-        getSelectedReviewBranch(args) === null
-      ) {
-        remoteTrackingBranchRef = await resolveTrackableRemoteBranchRef(
-          repo.path,
-          branchName,
-          remoteTrackingBase?.remote,
-          localWorktreeGitOptions
-        )
-        if (!remoteTrackingBranchRef) {
-          throw new WorktreeCreateCollisionError(
-            `Branch "${branchName}" exists on a remote but cannot be adopted unambiguously. Choose a different branch name.`
-          )
-        }
-        lastBranchConflictKind = null
-        selectedRemoteBranchName = branchName
-      }
       if (lastBranchConflictKind) {
         continue
       }
@@ -1364,16 +1400,7 @@ async function performLocalWorktreeCreate(
         }
       }
 
-      worktreePath = ensurePathWithinWorkspace(
-        computeWorktreePath(effectiveSanitizedName, repo.path, worktreePathSettings, workspaceRoot),
-        workspaceRoot
-      )
-      // Why the pending check: Git may already have deleted the directory while Orca still owns
-      // the path until its removal settles; take the next name instead of racing it.
-      if (
-        existsSync(worktreePath) ||
-        findPendingWorktreeRemovalConflict(repo.path, { worktreePath })
-      ) {
+      if (!pathIsAvailable()) {
         continue
       }
 
@@ -1466,7 +1493,11 @@ async function performLocalWorktreeCreate(
   try {
     addResult =
       (await timing.time('git_worktree_add', async () => {
-        if (sparseDirectories.length === 0 && !checkoutExistingBranch && !remoteTrackingBranchRef) {
+        if (
+          sparseDirectories.length === 0 &&
+          !checkoutExistingBranch &&
+          !selectedRemoteBranchName
+        ) {
           const prepared = await consumePreparedWorktreeCreate({
             repoPath: repo.path,
             workspaceRoot,

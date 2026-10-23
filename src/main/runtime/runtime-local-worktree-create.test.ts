@@ -501,48 +501,90 @@ describe('runtime create PR conflict probe', () => {
     mocks.branchName.mockImplementation(async (_path, _override, name: string) => name)
   })
 
-  it('creates an explicit remote-only branch as a tracking branch instead of suffixing it', async () => {
+  it.each([1, 10])(
+    'resolves a selected remote once through %i occupied paths, without PR eligibility',
+    async (occupied) => {
+      mocks.branchName.mockImplementation(async (_path, override, name: string) => override ?? name)
+      mocks.branchConflict.mockResolvedValue('remote')
+      mocks.trackRemoteBranch.mockResolvedValue('refs/remotes/origin/feature/test')
+      mocks.githubPr.mockResolvedValue({ number: 42 })
+      let pathChecks = 0
+      mocks.pathExists.mockImplementation(async () => pathChecks++ < occupied)
+
+      await createWorktree({
+        branchNameOverride: 'feature/test',
+        branchIntent: 'open-existing',
+        baseBranch: 'origin/main'
+      })
+
+      expect(mocks.branchName).toHaveBeenCalledTimes(1)
+      expect(mocks.trackRemoteBranch).toHaveBeenCalledTimes(1)
+      expect(mocks.branchConflict).toHaveBeenCalledTimes(1)
+      expect(mocks.githubPr).not.toHaveBeenCalled()
+      expect(mocks.consume).not.toHaveBeenCalled()
+      expect(mocks.add).toHaveBeenCalledWith(
+        '/repo',
+        resolve('/worktrees', `app-${occupied + 1}`),
+        'feature/test',
+        'origin/main',
+        false,
+        false,
+        expect.objectContaining({ remoteTrackingBranchRef: 'refs/remotes/origin/feature/test' })
+      )
+    }
+  )
+
+  it('retains same-name selected base semantics and WSL routing through sparse creation', async () => {
+    const base = {
+      ...remoteTrackingBase,
+      branch: 'feature/test',
+      base: 'origin/feature/test',
+      ref: 'refs/remotes/origin/feature/test'
+    }
+    mocks.routing.mockReturnValue({ wslDistro: 'Ubuntu' })
+    mocks.remoteBase.mockResolvedValue(base)
     mocks.branchName.mockImplementation(async (_path, override, name: string) => override ?? name)
-    mocks.branchConflict.mockResolvedValue('remote')
-    mocks.trackRemoteBranch.mockResolvedValue('refs/remotes/origin/feature/test')
-
-    await createWorktree({ branchNameOverride: 'feature/test', baseBranch: 'origin/main' })
-
-    expect(mocks.trackRemoteBranch).toHaveBeenCalledWith('/repo', 'feature/test', undefined, {})
-    expect(mocks.consume).not.toHaveBeenCalled()
-    expect(mocks.add).toHaveBeenCalledWith(
-      '/repo',
-      worktreePath,
-      'feature/test',
-      'origin/main',
-      false,
-      false,
-      expect.objectContaining({ remoteTrackingBranchRef: 'refs/remotes/origin/feature/test' })
-    )
-  })
-
-  it('keeps an adopted remote branch when the first worktree path is occupied', async () => {
-    mocks.branchName.mockImplementation(async (_path, override, name: string) => override ?? name)
-    mocks.branchConflict.mockResolvedValue('remote')
-    mocks.trackRemoteBranch.mockResolvedValue('refs/remotes/origin/feature/test')
+    mocks.branchConflict.mockResolvedValue(null)
+    mocks.trackRemoteBranch.mockResolvedValue(base.ref)
     mocks.pathExists.mockResolvedValueOnce(true).mockResolvedValue(false)
 
-    await createWorktree({ branchNameOverride: 'feature/test', baseBranch: 'origin/main' })
+    await createWorktree({
+      branchNameOverride: 'feature/test',
+      branchIntent: 'open-existing',
+      baseBranch: base.base,
+      sparseCheckout: { directories: ['src'] }
+    })
 
-    expect(mocks.branchName.mock.calls.map(([, override]) => override)).toEqual([
-      'feature/test',
-      'feature/test'
-    ])
-    expect(mocks.trackRemoteBranch).toHaveBeenCalledTimes(2)
-    expect(mocks.add).toHaveBeenCalledWith(
+    expect(mocks.trackRemoteBranch).toHaveBeenCalledWith('/repo', 'feature/test', 'origin', {
+      wslDistro: 'Ubuntu'
+    })
+    expect(mocks.consume).not.toHaveBeenCalled()
+    expect(mocks.githubPr).not.toHaveBeenCalled()
+    expect(mocks.addSparse).toHaveBeenCalledWith(
       '/repo',
       resolve('/worktrees', 'app-2'),
       'feature/test',
-      'origin/main',
+      ['src'],
+      base.base,
       false,
-      false,
-      expect.objectContaining({ remoteTrackingBranchRef: 'refs/remotes/origin/feature/test' })
+      expect.objectContaining({ remoteTrackingBase: base, wslDistro: 'Ubuntu' })
     )
+    expect(mocks.addSparse.mock.calls[0][6]).not.toHaveProperty('remoteTrackingBranchRef')
+  })
+
+  it('keeps unflagged legacy, mobile New branch and Advanced collisions on baseline allocation', async () => {
+    mocks.consume.mockResolvedValue({ status: 'miss', reason: 'not_prepared' })
+    mocks.branchName.mockImplementation(async (_path, override, name: string) => override ?? name)
+    mocks.branchConflict.mockImplementation(async (_path, branch: string) =>
+      branch === 'feature/test' ? 'remote' : null
+    )
+    mocks.trackRemoteBranch.mockResolvedValue('refs/remotes/origin/feature/test')
+
+    await createWorktree({ branchNameOverride: 'feature/test', baseBranch: 'origin/main' })
+
+    expect(mocks.trackRemoteBranch).not.toHaveBeenCalled()
+    expect(mocks.add.mock.calls[0][2]).toBe('feature/test-2')
+    expect(mocks.add.mock.calls[0][6]).not.toHaveProperty('remoteTrackingBranchRef')
   })
 
   it('runs the first name PR lookup while the base fetch is still in flight', async () => {

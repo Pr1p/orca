@@ -275,86 +275,70 @@ describe('registerWorktreeHandlers', () => {
     })
   })
 
-  it('tracks an explicit remote-only branch instead of suffixing it', async () => {
-    getBranchConflictKindMock.mockImplementation(async (_repoPath: string, branch: string) =>
-      branch === 'feature/something' ? 'remote' : null
-    )
-    remoteBranchAdoptionMocks.resolveTrackableRemoteBranchRef.mockResolvedValue(
-      'refs/remotes/origin/feature/something'
-    )
-    listWorktreesMock.mockResolvedValue([
-      {
-        path: '/workspace/feature-something',
-        head: 'abc123',
-        branch: 'refs/heads/feature/something',
-        isBare: false,
-        isMainWorktree: false
-      }
-    ])
+  it.each([
+    [1, 'origin/main'],
+    [10, 'origin/main'],
+    [1, 'origin/feature/something']
+  ] as const)(
+    'keeps remote identity through %i occupied directories from %s despite an existing PR',
+    async (occupied, baseBranch) => {
+      const sameBase = baseBranch === 'origin/feature/something'
+      getBranchConflictKindMock.mockResolvedValue(sameBase ? null : 'remote')
+      getPRForBranchMock.mockResolvedValue({ number: 42 })
+      remoteBranchAdoptionMocks.resolveTrackableRemoteBranchRef.mockResolvedValue(
+        'refs/remotes/origin/feature/something'
+      )
+      computeWorktreePathMock.mockImplementation((sanitizedName: string) =>
+        Number(sanitizedName.replace('feature-something', '').replace('-', '') || '1') <= occupied
+          ? process.cwd()
+          : `/workspace/${sanitizedName}`
+      )
+      listWorktreesMock.mockResolvedValue([
+        {
+          path: `/workspace/feature-something-${occupied + 1}`,
+          branch: 'refs/heads/feature/something'
+        }
+      ])
 
-    await handlers['worktrees:create'](null, {
-      repoId: 'repo-1',
-      name: 'feature/something',
-      branchNameOverride: 'feature/something'
-    })
+      await handlers['worktrees:create'](null, {
+        repoId: 'repo-1',
+        baseBranch,
+        name: 'feature/something',
+        branchNameOverride: 'feature/something',
+        branchIntent: 'open-existing'
+      })
 
-    expect(getBranchConflictKindMock).toHaveBeenCalledWith(
-      '/workspace/repo',
-      'feature/something',
-      'origin/main',
-      {}
-    )
-    expect(remoteBranchAdoptionMocks.resolveTrackableRemoteBranchRef).toHaveBeenCalledWith(
-      '/workspace/repo',
-      'feature/something',
-      undefined,
-      {}
-    )
-    expect(addWorktreeMock).toHaveBeenCalledWith(
-      '/workspace/repo',
-      '/workspace/feature-something',
-      'feature/something',
-      'origin/main',
-      false,
-      false,
-      { remoteTrackingBranchRef: 'refs/remotes/origin/feature/something' }
-    )
-  })
+      expect(remoteBranchAdoptionMocks.resolveTrackableRemoteBranchRef).toHaveBeenCalledTimes(1)
+      expect(getPRForBranchMock).not.toHaveBeenCalled()
+      expect(addWorktreeMock).toHaveBeenCalledWith(
+        '/workspace/repo',
+        `/workspace/feature-something-${occupied + 1}`,
+        'feature/something',
+        baseBranch,
+        false,
+        false,
+        sameBase ? {} : { remoteTrackingBranchRef: 'refs/remotes/origin/feature/something' }
+      )
+    }
+  )
 
-  it('keeps an adopted remote branch when the first worktree path is occupied', async () => {
-    getBranchConflictKindMock.mockResolvedValue('remote')
-    remoteBranchAdoptionMocks.resolveTrackableRemoteBranchRef.mockResolvedValue(
-      'refs/remotes/origin/feature/something'
-    )
-    computeWorktreePathMock.mockImplementation((sanitizedName: string) =>
-      sanitizedName === 'feature-something' ? process.cwd() : `/workspace/${sanitizedName}`
-    )
+  it('does not reinterpret an unflagged Advanced name as existing remote intent', async () => {
     listWorktreesMock.mockResolvedValue([
       {
         path: '/workspace/feature-something-2',
-        head: 'abc123',
-        branch: 'refs/heads/feature/something',
-        isBare: false,
-        isMainWorktree: false
+        branch: 'refs/heads/feature/something-2'
       }
     ])
-
+    getBranchConflictKindMock.mockImplementation(async (_repo: string, branch: string) =>
+      branch === 'feature/something' ? 'remote' : null
+    )
     await handlers['worktrees:create'](null, {
       repoId: 'repo-1',
       name: 'feature/something',
       branchNameOverride: 'feature/something'
     })
-
-    expect(remoteBranchAdoptionMocks.resolveTrackableRemoteBranchRef).toHaveBeenCalledTimes(2)
-    expect(addWorktreeMock).toHaveBeenCalledWith(
-      '/workspace/repo',
-      '/workspace/feature-something-2',
-      'feature/something',
-      'origin/main',
-      false,
-      false,
-      { remoteTrackingBranchRef: 'refs/remotes/origin/feature/something' }
-    )
+    expect(remoteBranchAdoptionMocks.resolveTrackableRemoteBranchRef).not.toHaveBeenCalled()
+    expect(addWorktreeMock.mock.calls[0][2]).toBe('feature/something-2')
   })
 
   it('allows a resolver-provided PR branch override to match its remote push target', async () => {

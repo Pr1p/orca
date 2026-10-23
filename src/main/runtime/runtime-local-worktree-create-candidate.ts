@@ -90,6 +90,56 @@ export async function resolveRuntimeLocalWorktreeCreateCandidate(args: {
         )
       : null
   const isRetiredName = retiredNameRegistry ? createRetiredNameLookup(retiredNameRegistry) : null
+  if (
+    args.request.branchIntent === 'open-existing' &&
+    args.request.branchNameOverride &&
+    !args.request.pushTarget &&
+    getSelectedReviewBranch(args.request) === null
+  ) {
+    branchName = await resolveCreateBranchName(
+      args.repo.path,
+      args.request.branchNameOverride,
+      sanitizedName,
+      args.settings,
+      args.username,
+      args.localWorktreeGitOptions
+    )
+    const conflict = await getBranchConflictKind(
+      args.repo.path,
+      branchName,
+      args.baseBranch,
+      args.localWorktreeGitOptions
+    )
+    if (conflict !== 'local') {
+      const ref = await resolveTrackableRemoteBranchRef(
+        args.repo.path,
+        branchName,
+        args.preferredRemote,
+        args.localWorktreeGitOptions
+      )
+      if (ref) {
+        selectedRemoteBranchName = branchName
+        const selectedBase = args.baseBranch.startsWith('refs/remotes/')
+          ? args.baseBranch
+          : `refs/remotes/${args.baseBranch}`
+        remoteTrackingBranchRef = ref === selectedBase ? null : ref
+      } else if (conflict === 'remote') {
+        throw new WorktreeCreateCollisionError(
+          `Branch "${branchName}" exists on a remote but cannot be adopted unambiguously. Choose a different branch name.`
+        )
+      }
+    }
+  }
+  const pathIsAvailable = async (): Promise<boolean> => {
+    worktreePath = ensurePathWithinWorkspace(
+      computeWorktreePath(effectiveSanitizedName, args.repo.path, args.worktreePathSettings),
+      args.workspaceRoot
+    )
+    return (
+      !findPendingWorktreeRemovalConflict(args.repo.path, { worktreePath }) &&
+      !(await runtimePathExists(worktreePath))
+    )
+  }
   for (let suffix = 1, attempts = 0; attempts < WORKTREE_CREATE_MAX_SUFFIX_ATTEMPTS; suffix += 1) {
     effectiveSanitizedName = shouldRetireGeneratedName
       ? getGeneratedWorktreeCreateCandidate(
@@ -107,11 +157,16 @@ export async function resolveRuntimeLocalWorktreeCreateCandidate(args: {
       continue
     }
     attempts += 1
-    remoteTrackingBranchRef = null
+    if (selectedRemoteBranchName) {
+      if (await pathIsAvailable()) {
+        worktreePathResolved = true
+        break
+      }
+      continue
+    }
     branchName = await resolveCreateBranchName(
       args.repo.path,
       selectedExistingLocalBranchName ??
-        selectedRemoteBranchName ??
         getBranchNameOverrideCandidate(args.request.branchNameOverride, suffix),
       effectiveSanitizedName,
       args.settings,
@@ -176,26 +231,6 @@ export async function resolveRuntimeLocalWorktreeCreateCandidate(args: {
           }
         }
       }
-      if (
-        branchConflictKind === 'remote' &&
-        args.request.branchNameOverride &&
-        !args.request.pushTarget &&
-        getSelectedReviewBranch(args.request) === null
-      ) {
-        remoteTrackingBranchRef = await resolveTrackableRemoteBranchRef(
-          args.repo.path,
-          branchName,
-          args.preferredRemote,
-          args.localWorktreeGitOptions
-        )
-        if (!remoteTrackingBranchRef) {
-          throw new WorktreeCreateCollisionError(
-            `Branch "${branchName}" exists on a remote but cannot be adopted unambiguously. Choose a different branch name.`
-          )
-        }
-        branchConflictKind = null
-        selectedRemoteBranchName = branchName
-      }
       if (branchConflictKind) {
         continue
       }
@@ -213,15 +248,7 @@ export async function resolveRuntimeLocalWorktreeCreateCandidate(args: {
         continue
       }
     }
-    worktreePath = ensurePathWithinWorkspace(
-      computeWorktreePath(effectiveSanitizedName, args.repo.path, args.worktreePathSettings),
-      args.workspaceRoot
-    )
-    // Why the pending check: Orca still owns this path until its background removal settles.
-    if (
-      !findPendingWorktreeRemovalConflict(args.repo.path, { worktreePath }) &&
-      !(await runtimePathExists(worktreePath))
-    ) {
+    if (await pathIsAvailable()) {
       worktreePathResolved = true
       break
     }

@@ -96,6 +96,7 @@ export async function executeWorktreeCreation(
         preparedRequest.compareBaseRef,
         {
           setupOnly: preparedRequest.setupOnly,
+          ...(preparedRequest.branchIntent ? { branchIntent: preparedRequest.branchIntent } : {}),
           executionHostId:
             preparedRequest.workspaceRunContext?.hostId ?? preparedRequest.executionHostId,
           ...(preparedRequest.nameWasGenerated ? { nameWasGenerated: true } : {}),
