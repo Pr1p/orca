@@ -158,6 +158,8 @@ it.each([
 })
 
 it.each([
+  ['adjacent list grouping', '- first\n* second', '* first\n* second'],
+  ['separating lists', '* first\n* second', '- first\n* second'],
   ['fenced code', '```text\n- literal\n```', '```text\n* literal\n```'],
   ['unterminated code', '```text\n- literal', '```text\n* literal'],
   ['list-contained code', '- ```text\n  - literal\n  ```', '- ```text\n  * literal\n  ```'],

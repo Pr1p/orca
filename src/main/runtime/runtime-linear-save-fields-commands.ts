@@ -1,7 +1,8 @@
-import type { Nodes } from 'mdast'
-import remarkGfm from 'remark-gfm'
-import remarkParse from 'remark-parse'
-import { unified } from 'unified'
+import { createRequire } from 'node:module'
+import type { Nodes, Root } from 'mdast'
+import type * as remarkGfmModule from 'remark-gfm'
+import type * as remarkParseModule from 'remark-parse'
+import type * as unifiedModule from 'unified'
 import {
   type getLinearIssueByUuidForAgent,
   type LinearIssueUpdate,
@@ -11,16 +12,25 @@ import {
 import { linearError } from '../linear/issue-context/errors'
 import { RuntimeLinearTaskFieldCommands } from './runtime-linear-task-fields-commands'
 
-const markdown = unified().use(remarkParse).use(remarkGfm)
+const requireFromRuntime = createRequire(__filename)
+let markdown: { parse(description: string): Root } | undefined
 
-function normalizeLinearIssueDescriptionForComparison(description: string): string {
+function linearIssueDescriptionComparisonKey(description: string): string {
+  if (!markdown) {
+    const { unified }: typeof unifiedModule = requireFromRuntime('unified')
+    const { default: remarkParse }: typeof remarkParseModule = requireFromRuntime('remark-parse')
+    const { default: remarkGfm }: typeof remarkGfmModule = requireFromRuntime('remark-gfm')
+    markdown = unified().use(remarkParse).use(remarkGfm)
+  }
   const replacements = new Map<number, string>()
+  const structure: string[] = []
   const pending: Nodes[] = [markdown.parse(description)]
   while (pending.length > 0) {
     const node = pending.pop()
     if (!node) {
       continue
     }
+    structure.push(`${node.type}:${'children' in node ? node.children.length : 0}`)
     if (node.type === 'list' && !node.ordered) {
       for (const item of node.children) {
         const offset = item.position?.start.offset
@@ -42,11 +52,11 @@ function normalizeLinearIssueDescriptionForComparison(description: string): stri
       pending.push(...node.children)
     }
   }
-  // Keep all other source bytes literal, including code, HTML, and unrelated Markdown syntax.
-  return description.replace(
-    /[-*\\]/g,
-    (character, offset) => replacements.get(offset) ?? character
-  )
+  // Preserve block structure too: changing list markers can join or separate adjacent lists.
+  return JSON.stringify([
+    description.replace(/[-*\\]/g, (character, offset) => replacements.get(offset) ?? character),
+    structure
+  ])
 }
 
 export class RuntimeLinearSaveFieldCommands extends RuntimeLinearTaskFieldCommands {
@@ -60,8 +70,8 @@ export class RuntimeLinearSaveFieldCommands extends RuntimeLinearTaskFieldComman
     if (
       fields.description !== undefined &&
       (issue.description ?? '') !== fields.description &&
-      normalizeLinearIssueDescriptionForComparison(issue.description ?? '') !==
-        normalizeLinearIssueDescriptionForComparison(fields.description)
+      linearIssueDescriptionComparisonKey(issue.description ?? '') !==
+        linearIssueDescriptionComparisonKey(fields.description)
     ) {
       return false
     }
