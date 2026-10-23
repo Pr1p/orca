@@ -21,7 +21,6 @@ import {
   restoredCodexSessionOptions,
   reportedCodexSessionOptions
 } from './codex-structured-session-options'
-import { startBackgroundCodexCatalogRefresh } from './codex-structured-background-catalog'
 import { CodexSkillReport } from './codex-structured-skill-report'
 import { codexAcquireCatalogAccess } from './codex-structured-acquire-catalog'
 import { reportedCodexThreadOptions } from './codex-structured-service-tier'
@@ -99,8 +98,7 @@ export async function openCodexStructuredSession(
     openCodexThread(
       connection,
       { ...threadLaunch, commandEnv },
-      // No deadline of its own: resuming a long rollout or starting MCP servers takes what it
-      // takes. The host's start ceiling, a close and a Stop end the wait through the signal.
+      // Long rollout/MCP setup relies on the host ceiling and cancellation unless a timeout is supplied.
       deps.requestTimeoutMs ?? null,
       openInput.signal
     ),
@@ -136,7 +134,7 @@ export async function openCodexStructuredSession(
     )
     current()
   }
-  const catalogAccess = codexAcquireCatalogAccess(deps, launch)
+  const catalogAccess = codexAcquireCatalogAccess(deps, launch, sessionId)
   const session: CodexSession = {
     events: input.events,
     account: start.account,
@@ -181,13 +179,6 @@ export async function openCodexStructuredSession(
     ...(deps.logger ? { logger: deps.logger } : {})
   })
   session.skillReport.refresh()
-  startBackgroundCodexCatalogRefresh({
-    session,
-    sessionId,
-    sessions,
-    timeoutMs: deps.requestTimeoutMs,
-    logger: deps.logger
-  })
   return {
     link: codexProviderHandleLink({
       threadId: opened.threadId,
@@ -202,7 +193,7 @@ export async function openCodexStructuredSession(
   }
 }
 
-/** An older Codex may still answer a resume with the whole thread, which the restore above took. */
+/** Older Codex versions return history inline, already handled by restoreThread. */
 function threadReturnedTurns(thread: Record<string, unknown> | undefined): boolean {
   return Array.isArray(thread?.turns) && thread.turns.length > 0
 }

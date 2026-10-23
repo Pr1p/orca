@@ -23,6 +23,7 @@ export type GitWorktreeExecOptions = {
   timeout?: number
   includeCreatePreparations?: boolean
   admissionTier?: GitAdmissionTier
+  spawnOnWorkerThread?: boolean
 }
 
 export type WorktreeRemovalPreflightOptions = GitWorktreeExecOptions & {
@@ -92,6 +93,7 @@ export type GitExecOptionsForWorktree = {
   signal?: AbortSignal
   timeout?: number
   admissionTier?: GitAdmissionTier
+  spawnOnWorkerThread?: boolean
 }
 
 export function gitExecOptions(
@@ -103,7 +105,8 @@ export function gitExecOptions(
     ...(options.wslDistro ? { wslDistro: options.wslDistro } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
     ...(options.timeout ? { timeout: options.timeout } : {}),
-    ...(options.admissionTier ? { admissionTier: options.admissionTier } : {})
+    ...(options.admissionTier ? { admissionTier: options.admissionTier } : {}),
+    ...(options.spawnOnWorkerThread ? { spawnOnWorkerThread: true } : {})
   }
 }
 

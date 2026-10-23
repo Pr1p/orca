@@ -13,6 +13,7 @@ import {
   FEED_ROWS,
   SERVED_SECTIONS,
   feedDomains,
+  feedKey,
   feedRow,
   liveRow,
   phoneView
@@ -87,6 +88,40 @@ function outline(sections: ReturnType<typeof sectionsFor>): string[] {
 }
 
 describe('the phone list from the sidebar feed', () => {
+  it.each(['repo', 'none', 'workspace-status', 'pr-status'] as const)(
+    'uses host headers instead of repeated card badges in %s grouping',
+    (groupBy) => {
+      const view = phoneView({ groupBy })
+      const live = liveRow({
+        worktreeId: FEED_ROWS.remote.id,
+        repoId: 'lab',
+        hostId: 'ssh:gpu',
+        hostContextLabel: 'GPU box',
+        hostContextHealthLabel: 'Disconnected'
+      })
+      const sections = sectionsFor(
+        { ...view, filters: { ...view.filters, visibleHostIds: ['local', 'ssh:gpu'] } },
+        { live: [live] }
+      )
+      expect(
+        sections.filter((section) => section.key.startsWith('host:')).map((s) => s.title)
+      ).toEqual(['Local Mac', 'GPU box'])
+      const rows = sections.flatMap((section) => section.data)
+      expect(rows).toHaveLength(3)
+      expect(rows.every((row) => row.hostContextLabel === undefined)).toBe(true)
+      expect(rows.find((row) => row.worktreeId === live.worktreeId)?.hostContextHealthLabel).toBe(
+        'Disconnected'
+      )
+
+      const mixed = sectionsFor(view, { live: [live] }).flatMap((section) => section.data)
+      expect(mixed.map((row) => row.hostContextLabel)).toEqual([
+        'Local Mac',
+        'Local Mac',
+        'GPU box'
+      ])
+    }
+  )
+
   it('draws the shared builder’s headers, order and nesting', () => {
     const lines = outline(sectionsFor(phoneView()))
     // The pinned parent carries its nested child.
@@ -137,7 +172,7 @@ describe('the phone list from the sidebar feed', () => {
     const domains = feedDomains({
       workspaces: new Map([
         ...base.workspaces,
-        ['|orca::/w/solo', feedRow({ id: 'orca::/w/solo', manualOrder: 4 })]
+        [feedKey('|orca::/w/solo'), feedRow({ id: 'orca::/w/solo', manualOrder: 4 })]
       ])
     })
     const built = buildSidebarFeedRows(domains, grouped, phoneFeedView(phoneView()))
@@ -209,7 +244,7 @@ describe('the phone list from the sidebar feed', () => {
 
     it('highlights nothing once the row is deleted', () => {
       const workspaces = new Map(feedDomains().workspaces)
-      workspaces.delete('|orca::/w/child')
+      workspaces.delete(feedKey('|orca::/w/child'))
       const domains = feedDomains({ workspaces })
       const sections = sectionsFromDomains(domains, phoneView(), '', {
         worktreeId: 'orca::/w/child'
@@ -228,31 +263,25 @@ describe('the phone list from the sidebar feed', () => {
     })
   })
 
-  // The phone sends its host list resolved with an "all" scope; the desktop keeps its legacy scope.
-  const scopes: [ExecutionHostScope, string[] | null][] = [
-    ['ssh:gpu', null],
-    ['all', ['local', 'ssh:gpu']],
-    ['all', ['ssh:gpu']],
-    ['local', ['local', 'ssh:gpu']]
+  const scopes: [ExecutionHostScope, string[] | null, string[]][] = [
+    ['ssh:gpu', null, ['lab::/w/gpu']],
+    ['all', ['local', 'ssh:gpu'], ['orca::/w/parent', 'orca::/w/child', 'lab::/w/gpu']],
+    ['all', ['ssh:gpu'], ['lab::/w/gpu']],
+    ['local', ['local', 'ssh:gpu'], ['orca::/w/parent', 'orca::/w/child', 'lab::/w/gpu']]
   ]
-  it.each(scopes)('builds the desktop’s rows for scope %s and hosts %j', (scope, hostIds) => {
-    const visibleHostIds = resolveVisibleWorkspaceHostIds(hostIds, scope)
-    const view = phoneView({ filters: { ...phoneView().filters, visibleHostIds } })
-    const desktopView: SidebarFeedView = {
-      ...phoneFeedView(view),
-      workspaceHostScope: scope,
-      visibleWorkspaceHostIds: hostIds && hostIds.length > 0 ? visibleHostIds : null
+  it.each(scopes)(
+    'shows the expected workspaces for scope %s and hosts %j',
+    (scope, hostIds, expected) => {
+      const visibleHostIds = resolveVisibleWorkspaceHostIds(hostIds, scope)
+      const view = phoneView({ filters: { ...phoneView().filters, visibleHostIds } })
+      for (const groupBy of ['repo', 'none', 'workspace-status', 'pr-status'] as const) {
+        const sections = sectionsFor({ ...view, groupBy })
+        expect(
+          sections.flatMap((section) => section.data.map((row) => row.worktreeId)).sort()
+        ).toEqual([...expected].sort())
+      }
     }
-    for (const groupBy of ['repo', 'none', 'workspace-status', 'pr-status'] as const) {
-      const phone = buildSidebarFeedRows(
-        feedDomains(),
-        catalog,
-        phoneFeedView({ ...view, groupBy })
-      )
-      const desktop = buildSidebarFeedRows(feedDomains(), catalog, { ...desktopView, groupBy })
-      expect(JSON.stringify(phone.sectionRows)).toBe(JSON.stringify(desktop.sectionRows))
-    }
-  })
+  )
 
   // The test process runs on its own platform, which plays the phone's here.
   it.each([
@@ -324,8 +353,8 @@ describe('the phone list from the sidebar feed', () => {
     const built = buildSidebarFeedRows(
       feedDomains({
         workspaces: new Map([
-          ['|orca::/w/parent', FEED_ROWS.parent],
-          ['|orca::/w/child', feedChild]
+          [feedKey('|orca::/w/parent'), FEED_ROWS.parent],
+          [feedKey('|orca::/w/child'), feedChild]
         ])
       }),
       catalog,

@@ -2,10 +2,14 @@ import { useEffect } from 'react'
 import { AppState, type AppStateStatus } from 'react-native'
 import { useClipboardReader } from '../platform/clipboard'
 import { triggerSelection, triggerError } from '../platform/haptics'
+import { resolveMobileImageAttachmentAgent } from './mobile-image-paste-agent'
 import { useMobileNewTabAgentOptions } from './use-mobile-new-tab-agent-options'
 import { useMobileSessionImageAttachments } from './use-mobile-session-image-attachments'
 import { useMobileNativeChatStructuredComposer } from './use-mobile-native-chat-structured-composer'
-import { resolveMobileNativeChatSessionId } from './mobile-native-chat-eligibility'
+import {
+  isMobileNativeChatAgentConfirmed,
+  resolveMobileNativeChatSessionId
+} from './mobile-native-chat-eligibility'
 import { useMobileAttachmentInputLeaseGate } from './use-mobile-attachment-input-lease-gate'
 import { useMobileTerminalPaste } from './use-mobile-terminal-paste'
 import type { MobileSessionAccessorySelectionModel } from './use-mobile-session-accessory-selection'
@@ -45,10 +49,10 @@ export function useMobileSessionAttachments(scope: MobileSessionAccessorySelecti
     hostId
   } = scope
   const clipboardContents = useClipboardReader().contents
-  const agent =
-    activeSessionTab && 'agentStatus' in activeSessionTab
-      ? (activeSessionTab.agentStatus?.agentType ?? nativeChatController.nativeChatAgent)
-      : nativeChatController.nativeChatAgent
+  const agent = resolveMobileImageAttachmentAgent(
+    activeSessionTab,
+    nativeChatController.nativeChatAgent
+  )
   const handlePaste = useMobileTerminalPaste({
     client,
     agent,
@@ -93,6 +97,7 @@ export function useMobileSessionAttachments(scope: MobileSessionAccessorySelecti
       deviceTokenRef,
       nativeChatScopeKey,
       nativeChatInputLeaseReady,
+      nativeChatAgentConfirmed: isMobileNativeChatAgentConfirmed(activeSessionTab),
       getActiveWorktreeConnectionId,
       beforeTerminalSend: flushPendingLiveInputBeforeAttachmentSend,
       nativeChatBaseSend: nativeChatController.handleNativeChatSendWithOutcome,
