@@ -85,35 +85,34 @@ async function hasCaseFoldedLocalConflict(
   return false
 }
 
+export function buildRemoteBranchRefs(
+  remoteNames: readonly string[],
+  branchName: string
+): string[] {
+  const sortedRemotes = [...remoteNames].sort((a, b) => b.length - a.length)
+  const refs = new Set<string>()
+  for (const remoteName of sortedRemotes) {
+    const ref = `refs/remotes/${remoteName}/${branchName}`
+    if (!isSafeGitRefName(ref)) {
+      continue
+    }
+    // Match the conflict policy's longest-remote-prefix interpretation when
+    // remote names overlap (for example, `foo` and `foo/bar`).
+    if (resolveConfiguredRemoteBranchName(ref, sortedRemotes) === branchName) {
+      refs.add(ref)
+    }
+  }
+  return [...refs]
+}
+
 function buildRemoteBranchConflictRefs(
   remoteNames: readonly string[],
   branchName: string,
   allowedBaseRef: string | undefined
 ): string[] {
-  const refs = new Set<string>()
-  for (const remoteName of remoteNames) {
-    const ref = `refs/remotes/${remoteName}/${branchName}`
-    if (!isSafeGitRefName(ref)) {
-      continue
-    }
-    // Why (#26344): the create is checking out that remote branch, so the same name on another
-    // remote (a fork's `upstream`) is not a collision; checking it would silently suffix the pick.
-    if (
-      isAllowedRemoteBaseRef(ref, allowedBaseRef) &&
-      resolveConfiguredRemoteBranchName(ref, remoteNames) === branchName
-    ) {
-      return []
-    }
-    // Match the conflict policy's longest-remote-prefix interpretation when
-    // remote names overlap (for example, `foo` and `foo/bar`).
-    if (
-      !isAllowedRemoteBaseRef(ref, allowedBaseRef) &&
-      resolveConfiguredRemoteBranchName(ref, remoteNames) === branchName
-    ) {
-      refs.add(ref)
-    }
-  }
-  return [...refs]
+  const refs = buildRemoteBranchRefs(remoteNames, branchName)
+  // Why (#26344): checking out an allowed remote base must not suffix its name, even on forks.
+  return refs.some((ref) => isAllowedRemoteBaseRef(ref, allowedBaseRef)) ? [] : refs
 }
 
 /** One batched child answers for every remote; the per-ref probes only run when the host cannot

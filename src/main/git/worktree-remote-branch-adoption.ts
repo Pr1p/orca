@@ -1,30 +1,9 @@
 import { isSafeGitRefName } from '../../shared/git-status-upstream-ref'
 import { listRemoteNames } from './repo-base-ref-search'
+import { buildRemoteBranchRefs } from './repo-branch-conflict'
+import { probeExactRefs } from './exact-ref-probe'
 import { gitExecFileAsync } from './runner'
 import { gitExecOptions, type LocalGitExecOptions } from './repo-default-base-ref'
-
-function remoteBranchRef(remote: string, branchName: string): string | null {
-  const ref = `refs/remotes/${remote}/${branchName}`
-  return isSafeGitRefName(ref) ? ref : null
-}
-
-async function hasRemoteBranchRef(
-  repoPath: string,
-  ref: string,
-  options: LocalGitExecOptions
-): Promise<boolean> {
-  try {
-    const { stdout } = await gitExecFileAsync(
-      ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`],
-      {
-        ...gitExecOptions(repoPath, options)
-      }
-    )
-    return stdout.trim().length > 0
-  } catch {
-    return false
-  }
-}
 
 /** Finds one safe remote-tracking ref for an explicitly requested local branch. */
 export async function resolveTrackableRemoteBranchRef(
@@ -37,23 +16,15 @@ export async function resolveTrackableRemoteBranchRef(
     return null
   }
   const remoteNames = await listRemoteNames(repoPath, options)
-  const candidates = [
-    ...(preferredRemote ? [preferredRemote] : []),
-    ...remoteNames.filter((remote) => remote !== preferredRemote)
-  ]
-    .map((remote) => remoteBranchRef(remote, branchName))
-    .filter((ref): ref is string => ref !== null)
-  const matches = (
-    await Promise.all(
-      candidates.map(async (ref) =>
-        (await hasRemoteBranchRef(repoPath, ref, options)) ? ref : null
-      )
-    )
-  ).filter((ref): ref is string => ref !== null)
+  const candidates = buildRemoteBranchRefs(remoteNames, branchName)
+  const { presentRefs: matches } = await probeExactRefs(
+    (argv) => gitExecFileAsync(argv, gitExecOptions(repoPath, options)),
+    candidates
+  )
 
   if (preferredRemote) {
-    const preferredRef = remoteBranchRef(preferredRemote, branchName)
-    if (preferredRef && matches.includes(preferredRef)) {
+    const preferredRef = `refs/remotes/${preferredRemote}/${branchName}`
+    if (matches.includes(preferredRef)) {
       return preferredRef
     }
   }
