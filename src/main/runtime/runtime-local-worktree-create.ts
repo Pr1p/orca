@@ -129,16 +129,6 @@ async function performRuntimeLocalWorktreeCreate<T>(args: RuntimeLocalWorktreeCr
       'Could not resolve a default base ref for this repo. Pass an explicit --base and try again.'
     )
   }
-  const preferredRemote =
-    request.branchIntent === 'open-existing'
-      ? (
-          await args.resolveRemoteTrackingBase(
-            repo.path,
-            request.baseBranch ?? baseBranch,
-            worktreeGitOptions
-          )
-        )?.remote
-      : undefined
   const base = await resolveRuntimeLocalWorktreeCreateBase({
     repoPath: repo.path,
     baseBranch,
@@ -167,7 +157,6 @@ async function performRuntimeLocalWorktreeCreate<T>(args: RuntimeLocalWorktreeCr
       username,
       store,
       baseBranch: base.baseBranch,
-      preferredRemote,
       localWorktreeGitOptions: worktreeGitOptions,
       hostedReviewExecutionContext: args.hostedReviewExecutionContext
     })
@@ -189,7 +178,6 @@ async function performRuntimeLocalWorktreeCreate<T>(args: RuntimeLocalWorktreeCr
       worktreePath: candidate.worktreePath,
       effectiveSanitizedName: candidate.effectiveSanitizedName,
       checkoutExistingBranch: candidate.checkoutExistingBranch,
-      remoteTrackingBranchRef: candidate.remoteTrackingBranchRef,
       localWorktreeGitOptions: worktreeGitOptions,
       baseRefRefresh,
       rearm: args.rearm,

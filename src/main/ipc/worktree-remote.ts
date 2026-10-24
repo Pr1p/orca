@@ -158,7 +158,6 @@ import {
   readWorktreeMetaForHost,
   worktreeRowTarget
 } from '../persistence/host-qualified-worktree-meta'
-import { resolveTrackableRemoteBranchRef } from '../git/worktree-remote-branch-adoption'
 // Bound network fetches so Windows credential-manager GUI hangs cannot wedge creation (STA-1292).
 const CREATE_BASE_FALLBACK_FETCH_TIMEOUT_MS = 60_000
 // Deferred materialization also fetches outside the create path and needs the same hang bound.
@@ -1054,7 +1053,6 @@ async function performLocalWorktreeCreate(
   }
 
   let remoteTrackingBase: RemoteTrackingBase | null = null
-  let preferredRemote: string | undefined
   let baseFallback: WorktreeCreateBaseFallback | undefined
   let remoteTrackingRefresh: {
     base: RemoteTrackingBase
@@ -1069,7 +1067,6 @@ async function performLocalWorktreeCreate(
       baseBranch,
       ...localWorktreeGitOptionArgs
     )
-    preferredRemote = remoteTrackingBase?.remote
     if (remoteTrackingBase) {
       const [hasRemoteTrackingBaseRef, hasNamedLocalBaseRef] = await Promise.all([
         runtime.hasRemoteTrackingRef(repo.path, remoteTrackingBase, ...localWorktreeGitOptionArgs),
@@ -1149,7 +1146,6 @@ async function performLocalWorktreeCreate(
   const branchConflictSubject = args.branchNameOverride ? 'branch name' : 'worktree name'
   let resolved = false
   let checkoutExistingBranch = false
-  let remoteTrackingBranchRef: string | null = null
   let selectedExistingLocalBranchName: string | null = null
   let selectedRemoteBranchName: string | null = null
   let lastBranchConflictKind: 'local' | 'remote' | null = null
@@ -1177,24 +1173,8 @@ async function performLocalWorktreeCreate(
       baseBranch,
       localWorktreeGitOptions
     )
-    if (conflict !== 'local') {
-      const ref = await resolveTrackableRemoteBranchRef(
-        repo.path,
-        branchName,
-        preferredRemote,
-        localWorktreeGitOptions
-      )
-      if (ref) {
-        selectedRemoteBranchName = branchName
-        const selectedBase = baseBranch.startsWith('refs/remotes/')
-          ? baseBranch
-          : `refs/remotes/${baseBranch}`
-        remoteTrackingBranchRef = ref === selectedBase ? null : ref
-      } else if (conflict === 'remote') {
-        throw new WorktreeCreateCollisionError(
-          `Branch "${branchName}" exists on a remote but cannot be adopted unambiguously. Choose a different branch name.`
-        )
-      }
+    if (conflict === null) {
+      selectedRemoteBranchName = branchName
     }
   }
   const pathIsAvailable = (): boolean => {
@@ -1411,7 +1391,6 @@ async function performLocalWorktreeCreate(
   const remoteTrackingBaseOption = remoteTrackingBase ? { remoteTrackingBase } : undefined
   const existingBranchOption = {
     checkoutExistingBranch,
-    ...(remoteTrackingBranchRef ? { remoteTrackingBranchRef } : {}),
     ...remoteTrackingBaseOption,
     ...(suggestLocalBaseRefUpdate ? { suggestLocalBaseRefUpdate } : {})
   }
@@ -1420,20 +1399,11 @@ async function performLocalWorktreeCreate(
       ? { ...remoteTrackingBaseOption, suggestLocalBaseRefUpdate }
       : remoteTrackingBaseOption
   )
-  const newBranchOptions = addProjectGitOptions({
-    ...(remoteTrackingBranchRef ? { remoteTrackingBranchRef } : {}),
-    ...remoteTrackingBaseOption,
-    ...(suggestLocalBaseRefUpdate ? { suggestLocalBaseRefUpdate } : {})
-  })
   let addResult: AddWorktreeResult
   try {
     addResult =
       (await timing.time('git_worktree_add', async () => {
-        if (
-          sparseDirectories.length === 0 &&
-          !checkoutExistingBranch &&
-          !selectedRemoteBranchName
-        ) {
+        if (sparseDirectories.length === 0 && !checkoutExistingBranch) {
           const prepared = await consumePreparedWorktreeCreate({
             repoPath: repo.path,
             workspaceRoot,
@@ -1477,7 +1447,7 @@ async function performLocalWorktreeCreate(
             sparseDirectories,
             baseBranch,
             settings.refreshLocalBaseRefOnWorktreeCreate,
-            newBranchOptions
+            preparedWorktreeOptions
           )
         }
 
@@ -1499,7 +1469,7 @@ async function performLocalWorktreeCreate(
           baseBranch,
           settings.refreshLocalBaseRefOnWorktreeCreate,
           false,
-          newBranchOptions
+          preparedWorktreeOptions
         )
       })) ?? {}
   } catch (error) {

@@ -35,20 +35,16 @@ function commandOptions(options: ExactRefProbeExecOptions): ExactRefProbeExecOpt
 async function probeExactRef(
   runGit: ExactRefProbeExec,
   ref: string,
-  options: ExactRefProbeExecOptions,
-  target: 'ref' | 'commit' = 'ref'
+  options: ExactRefProbeExecOptions
 ): Promise<ExactRefPresence> {
   if (!isSafeGitRefName(ref)) {
     return 'unknown'
   }
   try {
-    const argv =
-      target === 'commit'
-        ? ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]
-        : ['show-ref', '--verify', '--quiet', '--', ref]
+    const argv = ['show-ref', '--verify', '--quiet', '--', ref]
     const forwardedOptions = commandOptions(options)
-    const { stdout } = await (forwardedOptions ? runGit(argv, forwardedOptions) : runGit(argv))
-    return target === 'commit' && stdout.trim().length === 0 ? 'unknown' : 'present'
+    await (forwardedOptions ? runGit(argv, forwardedOptions) : runGit(argv))
+    return 'present'
   } catch (error) {
     return isShowRefNoMatchError(error) ? 'absent' : 'unknown'
   }
@@ -58,8 +54,7 @@ async function probeExactRef(
 export async function probeExactRefs(
   runGit: ExactRefProbeExec,
   refs: readonly string[],
-  options: ExactRefProbeExecOptions = {},
-  target: 'ref' | 'commit' = 'ref'
+  options: ExactRefProbeExecOptions = {}
 ): Promise<ExactRefProbeSetResult> {
   const uniqueRefs = [...new Set(refs)]
   const states: (ExactRefPresence | undefined)[] = Array.from(
@@ -75,7 +70,7 @@ export async function probeExactRefs(
         return
       }
       const ref = uniqueRefs[index]
-      states[index] = await probeExactRef(runGit, ref, options, target)
+      states[index] = await probeExactRef(runGit, ref, options)
     }
   }
 

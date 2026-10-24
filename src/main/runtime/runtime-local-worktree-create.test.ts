@@ -1,7 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolve } from 'node:path'
-import * as gitRunner from '../git/runner'
-import type * as RemoteBranchAdoption from '../git/worktree-remote-branch-adoption'
 import type { Store } from '../persistence'
 import type { WorktreeMeta } from '../../shared/worktree/meta-types'
 import type { HostWorktreeTarget } from '../../shared/worktree/host-qualified-identity'
@@ -23,7 +21,6 @@ const mocks = vi.hoisted(() => ({
   hasBase: vi.fn(),
   branchName: vi.fn(),
   canCheckout: vi.fn(),
-  trackRemoteBranch: vi.fn(),
   pathExists: vi.fn(),
   branchConflict: vi.fn(),
   githubPr: vi.fn(),
@@ -68,9 +65,6 @@ vi.mock('./runtime-worktree-create-git', () => ({
   getLocalGitHubPrForBranch: mocks.githubPr,
   getSelectedHostedReviewForBranch: vi.fn()
 }))
-vi.mock('../git/worktree-remote-branch-adoption', () => ({
-  resolveTrackableRemoteBranchRef: mocks.trackRemoteBranch
-}))
 vi.mock('./runtime-worktree-filesystem', () => ({ runtimePathExists: mocks.pathExists }))
 vi.mock('../worktree-create-preparation', () => ({ consumePreparedWorktreeCreate: mocks.consume }))
 vi.mock('../git/worktree', () => ({ addWorktree: mocks.add, addSparseWorktree: mocks.addSparse }))
@@ -103,6 +97,12 @@ import type { SparsePreset } from '../../shared/worktree/create-types'
 import { withoutInFlightWorktreeCreates } from '../worktree-create-in-flight'
 
 const worktreePath = resolve('/worktrees', 'app')
+
+const pickedBranch = {
+  baseBranch: 'origin/main',
+  branchNameOverride: 'main',
+  branchIntent: 'open-existing'
+} as const
 
 const writtenMeta: Partial<WorktreeMeta>[] = []
 const WEB_PRESET: SparsePreset = {
@@ -170,7 +170,6 @@ beforeEach(() => {
   mocks.hasBase.mockResolvedValue(true)
   mocks.branchName.mockResolvedValue('app')
   mocks.canCheckout.mockResolvedValue(false)
-  mocks.trackRemoteBranch.mockResolvedValue(null)
   mocks.pathExists.mockResolvedValue(false)
   mocks.branchConflict.mockResolvedValue(null)
   mocks.githubPr.mockResolvedValue(null)
@@ -350,9 +349,14 @@ describe('runtime create timing', () => {
     })
     const timing = createWorktreeCreateTimingRecorder()
 
-    await createWorktree({}, undefined, timing)
+    mocks.branchName.mockResolvedValue('main')
+    await createWorktree(pickedBranch, undefined, timing)
 
-    expect(mocks.consume).toHaveBeenCalledWith(expect.objectContaining({ timing }))
+    expect(mocks.consume).toHaveBeenCalledWith(
+      expect.objectContaining({ timing, branch: 'main', baseBranch: 'origin/main' })
+    )
+    expect(mocks.add).not.toHaveBeenCalled()
+    expect(mocks.consume.mock.calls[0][0].options).toEqual({})
     const finished = timing.finish()
     expect(finished.phases.map((phase) => phase.phase)).toEqual(
       expect.arrayContaining([
@@ -500,102 +504,68 @@ describe('runtime create PR conflict probe', () => {
   }
 
   beforeEach(() => {
-    mocks.branchName.mockImplementation(async (_path, _override, name: string) => name)
+    mocks.branchName.mockImplementation(async (_path, override, name: string) => override ?? name)
   })
 
   it.each([1, 10])(
-    'resolves a selected remote once through %i occupied paths, without PR eligibility',
+    'keeps the selected name and source through %i occupied paths, without PR eligibility',
     async (occupied) => {
-      mocks.branchName.mockImplementation(async (_path, override, name: string) => override ?? name)
-      mocks.branchConflict.mockResolvedValue('remote')
-      const { resolveTrackableRemoteBranchRef } = await vi.importActual<
-        typeof RemoteBranchAdoption
-      >('../git/worktree-remote-branch-adoption')
-      mocks.trackRemoteBranch.mockImplementation(resolveTrackableRemoteBranchRef)
-      mocks.routing.mockReturnValue({ wslDistro: 'Ubuntu' })
+      const options = { wslDistro: 'Ubuntu' }
+      mocks.routing.mockReturnValue(options)
       mocks.remoteBase.mockResolvedValue(remoteTrackingBase)
-      const remotes = ['origin', 'upstream', 'fork']
-      const gitExec = vi.spyOn(gitRunner, 'gitExecFileAsync').mockImplementation(async (argv) => ({
-        stdout: argv[0] === 'remote' ? remotes.join('\n') : 'a'.repeat(40),
-        stderr: ''
-      }))
       mocks.githubPr.mockResolvedValue({ number: 42 })
       let pathChecks = 0
       mocks.pathExists.mockImplementation(async () => pathChecks++ < occupied)
 
-      try {
-        await createWorktree({
-          branchNameOverride: 'feature/test',
-          branchIntent: 'open-existing',
-          baseBranch: 'origin/main'
-        })
+      await createWorktree({ ...pickedBranch, sparseCheckout: { directories: ['src'] } })
 
-        expect(gitExec).toHaveBeenCalledTimes(1 + remotes.length)
-        const options = { cwd: '/repo', wslDistro: 'Ubuntu' }
-        expect(gitExec).toHaveBeenCalledWith(['remote'], options)
-        for (const remote of remotes) {
-          const ref = `refs/remotes/${remote}/feature/test^{commit}`
-          expect(gitExec).toHaveBeenCalledWith(['rev-parse', '--verify', '--quiet', ref], options)
-        }
-      } finally {
-        gitExec.mockRestore()
-      }
+      expect(mocks.remoteBase.mock.calls).toEqual([['/repo', 'origin/main', options]])
+      expect(mocks.branchName).toHaveBeenCalledOnce()
+      expect(mocks.branchConflict.mock.calls).toEqual([['/repo', 'main', 'origin/main', options]])
       expect(mocks.pathExists).toHaveBeenCalledTimes(occupied + 1)
       expect(mocks.githubPr).not.toHaveBeenCalled()
       expect(mocks.consume).not.toHaveBeenCalled()
-      expect(mocks.add).toHaveBeenCalledTimes(1)
-      expect(mocks.add).toHaveBeenCalledWith(
+      expect(mocks.addSparse).toHaveBeenCalledExactlyOnceWith(
         '/repo',
         resolve('/worktrees', `app-${occupied + 1}`),
-        'feature/test',
-        'origin/main',
+        'main',
+        ['src'],
+        remoteTrackingBase.base,
         false,
-        false,
-        expect.objectContaining({
-          remoteTrackingBranchRef: 'refs/remotes/origin/feature/test',
-          wslDistro: 'Ubuntu'
-        })
+        expect.objectContaining({ remoteTrackingBase, ...options })
       )
     }
   )
 
-  it('retains same-name selected base semantics and WSL routing through sparse creation', async () => {
-    const base = {
-      ...remoteTrackingBase,
-      branch: 'feature/test',
-      base: 'origin/feature/test',
-      ref: 'refs/remotes/origin/feature/test'
+  it.each([true, false])(
+    'keeps local eligibility with picker intent (reusable: %s)',
+    async (reusable) => {
+      mocks.branchConflict.mockImplementation(async (_path, branch: string) =>
+        branch === 'main' ? 'local' : null
+      )
+      mocks.canCheckout.mockImplementation(
+        async (_path, branch: string) => reusable && branch === 'main'
+      )
+      mocks.pathExists.mockImplementation(async (path) => path === worktreePath)
+      mocks.consume.mockResolvedValue({ status: 'miss', reason: 'not_prepared' })
+
+      await createWorktree(pickedBranch)
+
+      expect(mocks.add).toHaveBeenCalledWith(
+        '/repo',
+        resolve('/worktrees', 'app-2'),
+        reusable ? 'main' : 'main-2',
+        'origin/main',
+        false,
+        false,
+        expect.objectContaining(reusable ? { checkoutExistingBranch: true } : {})
+      )
+      expect(mocks.githubPr.mock.calls.map(([, branch]) => branch)).toEqual(
+        reusable ? [] : ['main-2']
+      )
+      expect(mocks.add.mock.calls[0][6].checkoutExistingBranch ?? false).toBe(reusable)
     }
-    mocks.routing.mockReturnValue({ wslDistro: 'Ubuntu' })
-    mocks.remoteBase.mockResolvedValue(base)
-    mocks.branchName.mockImplementation(async (_path, override, name: string) => override ?? name)
-    mocks.branchConflict.mockResolvedValue(null)
-    mocks.trackRemoteBranch.mockResolvedValue(base.ref)
-    mocks.pathExists.mockResolvedValueOnce(true).mockResolvedValue(false)
-
-    await createWorktree({
-      branchNameOverride: 'feature/test',
-      branchIntent: 'open-existing',
-      baseBranch: base.base,
-      sparseCheckout: { directories: ['src'] }
-    })
-
-    expect(mocks.trackRemoteBranch).toHaveBeenCalledWith('/repo', 'feature/test', 'origin', {
-      wslDistro: 'Ubuntu'
-    })
-    expect(mocks.consume).not.toHaveBeenCalled()
-    expect(mocks.githubPr).not.toHaveBeenCalled()
-    expect(mocks.addSparse).toHaveBeenCalledWith(
-      '/repo',
-      resolve('/worktrees', 'app-2'),
-      'feature/test',
-      ['src'],
-      base.base,
-      false,
-      expect.objectContaining({ remoteTrackingBase: base, wslDistro: 'Ubuntu' })
-    )
-    expect(mocks.addSparse.mock.calls[0][6]).not.toHaveProperty('remoteTrackingBranchRef')
-  })
+  )
 
   it('keeps unflagged legacy, mobile New branch and Advanced collisions on baseline allocation', async () => {
     mocks.consume.mockResolvedValue({ status: 'miss', reason: 'not_prepared' })
@@ -603,13 +573,10 @@ describe('runtime create PR conflict probe', () => {
     mocks.branchConflict.mockImplementation(async (_path, branch: string) =>
       branch === 'feature/test' ? 'remote' : null
     )
-    mocks.trackRemoteBranch.mockResolvedValue('refs/remotes/origin/feature/test')
 
     await createWorktree({ branchNameOverride: 'feature/test', baseBranch: 'origin/main' })
 
-    expect(mocks.trackRemoteBranch).not.toHaveBeenCalled()
     expect(mocks.add.mock.calls[0][2]).toBe('feature/test-2')
-    expect(mocks.add.mock.calls[0][6]).not.toHaveProperty('remoteTrackingBranchRef')
   })
 
   it('runs the first name PR lookup while the base fetch is still in flight', async () => {

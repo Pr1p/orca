@@ -95,29 +95,6 @@ describe('addWorktree', () => {
     ])
   })
 
-  it('creates a tracking branch from an explicitly selected remote branch', async () => {
-    gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: '' }) // worktree add
-
-    await addWorktree('/repo', '/repo-feature', 'feature/test', 'origin/main', false, false, {
-      remoteTrackingBranchRef: 'refs/remotes/origin/feature/test'
-    })
-
-    expect(gitExecFileAsyncMock.mock.calls).toEqual([
-      [
-        [
-          'worktree',
-          'add',
-          '--track',
-          '-b',
-          'feature/test',
-          '/repo-feature',
-          'refs/remotes/origin/feature/test'
-        ],
-        { cwd: '/repo', timeout: WORKTREE_ADD_TIMEOUT_MS }
-      ]
-    ])
-  })
-
   it('enables long paths for native Windows worktree creation', async () => {
     platformSpy.mockReturnValue('win32')
     gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: '' })

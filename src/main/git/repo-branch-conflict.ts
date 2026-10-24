@@ -83,34 +83,33 @@ async function hasCaseFoldedLocalConflict(
   return false
 }
 
-export function buildRemoteBranchRefs(
-  remoteNames: readonly string[],
-  branchName: string
-): string[] {
-  const sortedRemotes = [...remoteNames].sort((a, b) => b.length - a.length)
-  const refs = new Set<string>()
-  for (const remoteName of sortedRemotes) {
-    const ref = `refs/remotes/${remoteName}/${branchName}`
-    if (!isSafeGitRefName(ref)) {
-      continue
-    }
-    // Match the conflict policy's longest-remote-prefix interpretation when
-    // remote names overlap (for example, `foo` and `foo/bar`).
-    if (resolveConfiguredRemoteBranchName(ref, sortedRemotes) === branchName) {
-      refs.add(ref)
-    }
-  }
-  return [...refs]
-}
-
 function buildRemoteBranchConflictRefs(
   remoteNames: readonly string[],
   branchName: string,
   allowedBaseRef: string | undefined
 ): string[] {
-  const refs = buildRemoteBranchRefs(remoteNames, branchName)
-  // Matching the checkout base is allowed even when multiple remotes carry the same branch.
-  return refs.some((ref) => isAllowedRemoteBaseRef(ref, allowedBaseRef)) ? [] : refs
+  const refs = new Set<string>()
+  for (const remoteName of remoteNames) {
+    const ref = `refs/remotes/${remoteName}/${branchName}`
+    if (!isSafeGitRefName(ref)) {
+      continue
+    }
+    // Matching the checkout base is allowed even when multiple remotes carry the same branch.
+    if (
+      isAllowedRemoteBaseRef(ref, allowedBaseRef) &&
+      resolveConfiguredRemoteBranchName(ref, remoteNames) === branchName
+    ) {
+      return []
+    }
+    // Prefer the longest configured remote prefix when names overlap.
+    if (
+      !isAllowedRemoteBaseRef(ref, allowedBaseRef) &&
+      resolveConfiguredRemoteBranchName(ref, remoteNames) === branchName
+    ) {
+      refs.add(ref)
+    }
+  }
+  return [...refs]
 }
 
 /** Batch remote probes; use per-ref lookups only when stdin is unavailable or the batch is undecided. */

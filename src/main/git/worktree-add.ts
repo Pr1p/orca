@@ -228,9 +228,6 @@ async function performAddWorktree(
   }
   if (options.checkoutExistingBranch) {
     args.push(worktreePath, branch)
-  } else if (options.remoteTrackingBranchRef) {
-    // Why: an explicitly named remote branch must retain its commits and upstream, never fall through to a suffixed branch from the selected base.
-    args.push('--track', '-b', branch, worktreePath, options.remoteTrackingBranchRef)
   } else {
     // Avoid inheriting the base's upstream; same-name remote bases are tracked explicitly afterward.
     args.push('--no-track', '-b', branch, worktreePath)
@@ -270,7 +267,7 @@ async function performAddWorktree(
     invalidateWslLinkedWorktreeGitRouting(worktreePath)
   }
 
-  if (options.checkoutExistingBranch || options.remoteTrackingBranchRef) {
+  if (options.checkoutExistingBranch) {
     return {}
   }
 
