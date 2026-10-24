@@ -32,12 +32,9 @@ const PACKAGED_RUNTIME_PACKAGE_ROOTS = [
   'posthog-node',
   'proper-lockfile',
   'qrcode',
-  'remark-gfm',
-  'remark-parse',
   'smol-toml',
   'ssh2',
   'tweetnacl',
-  'unified',
   'ws',
   'yaml',
   'zod'

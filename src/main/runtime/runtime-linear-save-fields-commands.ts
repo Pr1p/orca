@@ -1,8 +1,3 @@
-import { createRequire } from 'node:module'
-import type { Nodes, Root } from 'mdast'
-import type * as remarkGfmModule from 'remark-gfm'
-import type * as remarkParseModule from 'remark-parse'
-import type * as unifiedModule from 'unified'
 import {
   type getLinearIssueByUuidForAgent,
   type LinearIssueUpdate,
@@ -12,67 +7,32 @@ import {
 import { linearError } from '../linear/issue-context/errors'
 import { RuntimeLinearTaskFieldCommands } from './runtime-linear-task-fields-commands'
 
-const requireFromRuntime = createRequire(__filename)
-let markdown: { parse(description: string): Root } | undefined
-
-function linearIssueDescriptionComparisonKey(description: string): string {
-  if (!markdown) {
-    const { unified }: typeof unifiedModule = requireFromRuntime('unified')
-    const { default: remarkParse }: typeof remarkParseModule = requireFromRuntime('remark-parse')
-    const { default: remarkGfm }: typeof remarkGfmModule = requireFromRuntime('remark-gfm')
-    markdown = unified().use(remarkParse).use(remarkGfm)
-  }
-  const replacements = new Map<number, string>()
-  const structure: string[] = []
-  const pending: Nodes[] = [markdown.parse(description)]
-  while (pending.length > 0) {
-    const node = pending.pop()
-    if (!node) {
-      continue
-    }
-    structure.push(`${node.type}:${'children' in node ? node.children.length : 0}`)
-    if (node.type === 'list' && !node.ordered) {
-      for (const item of node.children) {
-        const offset = item.position?.start.offset
-        if (offset === undefined) {
-          continue
-        }
-        const source = description.slice(offset, item.position?.end.offset)
-        if (!/^[-*] (?=\S)/.test(source)) {
-          continue
-        }
-        replacements.set(offset, '*')
-        const taskNumber = /^[-*] \[[ xX]\] \d+(\\)\.(?=\s)/.exec(source)
-        if (item.checked !== null && item.checked !== undefined && taskNumber) {
-          replacements.set(offset + taskNumber[0].length - 2, '')
-        }
-      }
-    }
-    if ('children' in node) {
-      pending.push(...node.children)
-    }
-  }
-  // Preserve block structure too: changing list markers can join or separate adjacent lists.
-  return JSON.stringify([
-    description.replace(/[-*\\]/g, (character, offset) => replacements.get(offset) ?? character),
-    structure
-  ])
-}
-
 export class RuntimeLinearSaveFieldCommands extends RuntimeLinearTaskFieldCommands {
-  public linearSavedIssueMatchesIntent(
+  public async linearSavedIssueMatchesIntent(
+    issue: NonNullable<Awaited<ReturnType<typeof getLinearIssueByUuidForAgent>>>,
+    fields: LinearIssueUpdate
+  ): Promise<boolean> {
+    if (!this.linearSavedIssueFieldsMatchIntent(issue, fields)) {
+      return false
+    }
+    const description = issue.description ?? ''
+    if (fields.description === undefined || description === fields.description) {
+      return true
+    }
+    // Why dynamic: keeps the Markdown parser off startup while every bundle (Electron, orcad) inlines it.
+    const { linearIssueDescriptionComparisonKey } =
+      await import('./linear-issue-description-comparison')
+    return (
+      linearIssueDescriptionComparisonKey(description) ===
+      linearIssueDescriptionComparisonKey(fields.description)
+    )
+  }
+
+  private linearSavedIssueFieldsMatchIntent(
     issue: NonNullable<Awaited<ReturnType<typeof getLinearIssueByUuidForAgent>>>,
     fields: LinearIssueUpdate
   ): boolean {
     if (fields.title !== undefined && issue.title !== fields.title) {
-      return false
-    }
-    if (
-      fields.description !== undefined &&
-      (issue.description ?? '') !== fields.description &&
-      linearIssueDescriptionComparisonKey(issue.description ?? '') !==
-        linearIssueDescriptionComparisonKey(fields.description)
-    ) {
       return false
     }
     if (fields.parentId !== undefined && (issue.parent?.id ?? null) !== fields.parentId) {
