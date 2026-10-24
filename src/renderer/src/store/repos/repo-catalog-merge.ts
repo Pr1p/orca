@@ -8,7 +8,11 @@ import type { SshRepoReconciliation } from '../slices/superseded-ssh-repo-rows'
 import { reconcileReadoptedSshWorktreesByRepo } from '../slices/readopted-ssh-worktree-rows'
 import { callRuntimeRpc } from '../../runtime/runtime-rpc-client'
 import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
-import { getRepoExecutionHostId, type ExecutionHostId } from '../../../../shared/execution-host'
+import {
+  getRepoExecutionHostId,
+  LOCAL_EXECUTION_HOST_ID,
+  type ExecutionHostId
+} from '../../../../shared/execution-host'
 import { adoptFromEndpoint } from '../adopt-from-endpoint'
 import { getRuntimeTargetHostId } from '../../runtime/runtime-client-target'
 import { fetchProjectHostSetupCompatibility } from '../projects/project-host-routing'
@@ -124,6 +128,22 @@ type HostOwnedWorktree = {
   runtimeOwnerEnvironmentId?: string
 }
 
+function worktreePruneMatchOptions(
+  previousRepos: readonly Repo[],
+  repoId: string,
+  hostId: ExecutionHostId
+) {
+  const matchOptions = worktreeHostMatchOptions({ repos: previousRepos }, repoId, hostId)
+  const previousOwners = previousRepos.filter((repo) => repo.id === repoId)
+  const hadLocalOwner = previousOwners.some(
+    (repo) => getRepoExecutionHostId(repo) === LOCAL_EXECUTION_HOST_ID
+  )
+  // Why: a local refresh cannot attribute legacy unhosted rows to itself when every known owner was remote.
+  return hostId === LOCAL_EXECUTION_HOST_ID && previousOwners.length > 0 && !hadLocalOwner
+    ? { ...matchOptions, unhostedWorktreesMatchHost: false }
+    : matchOptions
+}
+
 function pruneRemovedHostRepoRows<T extends HostOwnedWorktree>(
   rowsByRepo: Record<string, T[]>,
   repos: readonly Repo[],
@@ -138,7 +158,7 @@ function pruneRemovedHostRepoRows<T extends HostOwnedWorktree>(
     if (repoIdsForHost.has(repoId)) {
       continue
     }
-    const matchOptions = worktreeHostMatchOptions({ repos: previousRepos }, repoId, hostId)
+    const matchOptions = worktreePruneMatchOptions(previousRepos, repoId, hostId)
     const survivingRows = rows.filter((row) => !worktreeMatchesHost(row, hostId, matchOptions))
     if (survivingRows.length === rows.length) {
       continue
