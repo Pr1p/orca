@@ -6,6 +6,7 @@ import {
   getAnchoredImageViewerScrollOffset,
   getNextWheelImageViewerZoom,
   getPinchZoomFactor,
+  getWheelDeltaPixels,
   getZoomedImageLayoutSize,
   shouldHandleImageZoomWheel
 } from './image-viewer-zoom'
@@ -35,6 +36,10 @@ describe('image viewer zoom helpers', () => {
   })
 
   it('normalizes line and page wheel delta modes', () => {
+    expect(getWheelDeltaPixels(1, 0)).toBe(1)
+    expect(getWheelDeltaPixels(1, 1)).toBe(16)
+    expect(getWheelDeltaPixels(1, 2)).toBe(800)
+
     const pixelFactor = getPinchZoomFactor(1, 0)
     const lineFactor = getPinchZoomFactor(1, 1)
     const pageFactor = getPinchZoomFactor(1, 2)

@@ -6,6 +6,7 @@ import {
   getAnchoredSurfaceScrollOffset,
   getNextWheelSurfaceZoom,
   getSurfacePinchZoomFactor,
+  getSurfaceWheelDeltaPixels,
   getZoomedSurfaceLayoutSize,
   shouldHandleSurfaceZoomWheel
 } from './anchored-surface-zoom'
@@ -34,6 +35,10 @@ export function clampImageViewerZoom(next: number): number {
 
 export function shouldHandleImageZoomWheel(event: ImageZoomWheelEventLike): boolean {
   return shouldHandleSurfaceZoomWheel(event)
+}
+
+export function getWheelDeltaPixels(delta: number, deltaMode: number): number {
+  return getSurfaceWheelDeltaPixels(delta, deltaMode)
 }
 
 export function getPinchZoomFactor(deltaY: number, deltaMode: number): number {
