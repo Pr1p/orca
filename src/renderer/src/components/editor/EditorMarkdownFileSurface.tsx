@@ -1,10 +1,13 @@
 import { translate } from '@/i18n/i18n'
+import { useAppStore } from '@/store'
 import type { MarkdownViewMode, OpenFile } from '@/store/slices/editor'
+import { Button } from '@/components/ui/button'
+import { RICH_MARKDOWN_MAX_SIZE_BYTES } from '../../../../shared/constants'
+import { formatBytes } from '../status-bar/workspace-space-format'
 import { MarkdownPreview, RichMarkdownEditor } from './editor-lazy-views'
-import { exceedsMarkdownRichModeSizeLimit } from './markdown-rich-size-limit'
 import { extractFrontMatter, prependFrontMatter } from './markdown-frontmatter'
-import { getMarkdownRenderMode } from './markdown-render-mode'
-import { getMarkdownRichModeUnsupportedMessage } from './markdown-rich-mode'
+import { exceedsMarkdownRenderOverrideSizeLimit } from './markdown-rich-size-limit'
+import type { MarkdownRenderState } from './markdown-render-mode'
 import { RichMarkdownErrorBoundary } from './RichMarkdownErrorBoundary'
 import type { useMarkdownDocuments } from './useMarkdownDocuments'
 
@@ -16,6 +19,7 @@ export function EditorMarkdownFileSurface({
   editorViewStateKey,
   currentContent,
   mdViewMode,
+  inlineMarkdownRenderState,
   showMarkdownTableOfContents,
   showMarkdownFrontmatter,
   onCloseMarkdownTableOfContents,
@@ -31,6 +35,7 @@ export function EditorMarkdownFileSurface({
   editorViewStateKey: string
   currentContent: string
   mdViewMode: MarkdownViewMode
+  inlineMarkdownRenderState: MarkdownRenderState | null
   showMarkdownTableOfContents: boolean
   showMarkdownFrontmatter: boolean
   onCloseMarkdownTableOfContents: () => void
@@ -41,24 +46,42 @@ export function EditorMarkdownFileSurface({
   handleDirtyStateHint: (dirty: boolean) => void
   monacoEditor: React.JSX.Element
 }): React.JSX.Element {
-  const richModeUnsupportedMessage = getMarkdownRichModeUnsupportedMessage(currentContent)
-  const renderMode = getMarkdownRenderMode({
-    exceedsRichModeSizeLimit: exceedsMarkdownRichModeSizeLimit(currentContent),
-    hasRichModeUnsupportedContent: richModeUnsupportedMessage !== null,
-    viewMode: mdViewMode
-  })
+  const setSizeOverride = useAppStore((s) => s.setMarkdownRichModeSizeOverride)
 
   if (activeFile.conflict?.conflictStatus === 'unresolved') {
     return <div className="h-full min-h-0">{monacoEditor}</div>
   }
+  if (!inlineMarkdownRenderState) {
+    return <div className="h-full min-h-0">{monacoEditor}</div>
+  }
+  const { renderMode, richModeUnsupportedMessage } = inlineMarkdownRenderState
   if (renderMode === 'source' && mdViewMode === 'rich') {
+    // Only size fallbacks allow override; unsupported syntax cannot safely round-trip.
+    const isSizeFallback = richModeUnsupportedMessage === null
+    const canOverrideSize =
+      isSizeFallback && !exceedsMarkdownRenderOverrideSizeLimit(currentContent)
     const richFallbackMessage =
       richModeUnsupportedMessage ??
-      'File is too large for rich editing. Showing source mode instead.'
+      translate(
+        'editor.richMarkdown.tooLarge',
+        'File is larger than the {{limit}} rich editing limit. Showing source mode instead.',
+        { limit: formatBytes(RICH_MARKDOWN_MAX_SIZE_BYTES) }
+      )
     return (
       <div className="flex h-full min-h-0 flex-col">
-        <div className="border-b border-border/60 bg-blue-500/10 px-3 py-2 text-xs text-blue-950 dark:text-blue-100">
-          {richFallbackMessage}
+        <div className="flex items-center gap-3 border-b border-border/60 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          <span className="min-w-0 flex-1">{richFallbackMessage}</span>
+          {canOverrideSize ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              className="shrink-0"
+              onClick={() => setSizeOverride(activeFile.id, true)}
+            >
+              {translate('editor.richMarkdown.openAnyway', 'Open anyway')}
+            </Button>
+          ) : null}
         </div>
         <div className="min-h-0 flex-1 h-full">{monacoEditor}</div>
       </div>
@@ -78,7 +101,7 @@ export function EditorMarkdownFileSurface({
     return (
       <div className="flex h-full min-h-0 flex-col">
         <div className="min-h-0 flex-1">
-          {/* Why: keyed for remount like MonacoEditor; boundary contains a TipTap render crash (issue #826) to this pane. */}
+          {/* Remount per pane and contain TipTap render failures to this editor. */}
           <RichMarkdownErrorBoundary key={viewStateScopeId} fileId={activeFile.id}>
             <RichMarkdownEditor
               fileId={activeFile.id}
@@ -102,7 +125,7 @@ export function EditorMarkdownFileSurface({
                 frontMatter ? getMarkdownSourceLineOffset(frontMatter.raw) : 0
               }
               markdownReviewContent={currentContent}
-              // Why: banner goes below the toolbar (inside the editor shell) so formatting controls stay at the top of the pane.
+              // Place frontmatter below the toolbar to keep formatting controls at the top.
               headerSlot={
                 frontMatter && showMarkdownFrontmatter ? (
                   <FrontMatterBanner raw={frontMatter.raw} />
@@ -119,14 +142,14 @@ export function EditorMarkdownFileSurface({
     return (
       <div className="flex h-full min-h-0 flex-col">
         {shouldExplainRichFallback ? (
-          <div className="border-b border-border/60 bg-amber-500/10 px-3 py-2 text-xs text-amber-950 dark:text-amber-100">
+          <div className="border-b border-border/60 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
             {richModeUnsupportedMessage}
           </div>
         ) : null}
-        {/* Why: fall back to the stable preview renderer when Tiptap can't safely own the document. */}
+        {/* Use preview when TipTap cannot safely own the document. */}
         <div className="min-h-0 flex-1">
           <MarkdownPreview
-            key={viewStateScopeId}
+            key={`${viewStateScopeId}:${editorViewStateKey}`}
             content={currentContent}
             filePath={activeFile.filePath}
             sourceFileId={activeFile.id}

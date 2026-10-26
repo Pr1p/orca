@@ -10,29 +10,35 @@ export type BrowserAddressBarSubmission =
   | { status: 'navigate'; url: string }
   | { status: 'invalid'; loadError: BrowserLoadError }
 
-/**
- * Every browser pane resolves typed address-bar input here, so search fallback, the
- * Kagi session link and the invalid-input failure cannot drift between backends.
- * Callers stay responsible for routing the two outcomes into their own chrome.
- */
-export function resolveBrowserAddressBarSubmission(rawValue: string): BrowserAddressBarSubmission {
+/** Share search fallback, Kagi handling and invalid-input failures across browser backends. */
+export function resolveBrowserAddressBarSubmission(
+  rawValue: string,
+  options?: { allowFileUrls?: boolean }
+): BrowserAddressBarSubmission {
   const { browserDefaultSearchEngine, browserKagiSessionLink } = useAppStore.getState()
-  // Why: the search-engine argument opts into search fallback; without it typed
-  // queries parse as hosts ("google maps" -> https://google%20maps/).
+  // Passing the search engine enables query fallback; otherwise “google maps” becomes a host.
   const url = normalizeBrowserNavigationUrl(rawValue, browserDefaultSearchEngine, {
     kagiSessionLink: browserKagiSessionLink
   })
-  if (url) {
+  // Client-hosted pages must not probe this machine’s disk; surface file: refusal instead of leaving a blank tab.
+  const fileUrlUnsupported =
+    options?.allowFileUrls === false && Boolean(url) && url!.startsWith('file:')
+  if (url && !fileUrlUnsupported) {
     return { status: 'navigate', url }
   }
   return {
     status: 'invalid',
     loadError: {
       code: 0,
-      description: translate(
-        'auto.components.browser.pane.BrowserPane.87eb75f7d2',
-        'Enter a valid http(s) or localhost URL.'
-      ),
+      description: fileUrlUnsupported
+        ? translate(
+            'auto.components.browser.pane.BrowserPane.fileUrlUnsupported',
+            'This browser tab cannot open local files. Use "Open Preview to the Side" on the file instead.'
+          )
+        : translate(
+            'auto.components.browser.pane.BrowserPane.87eb75f7d2',
+            'Enter a valid http(s) or localhost URL.'
+          ),
       // Why: validatedUrl is persisted, so redact a possible Kagi session token first.
       validatedUrl: redactKagiSessionToken(rawValue.trim()) || 'about:blank'
     }

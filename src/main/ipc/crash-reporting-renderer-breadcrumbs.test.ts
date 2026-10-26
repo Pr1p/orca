@@ -250,8 +250,7 @@ describe('renderer breadcrumb IPC routing', () => {
     })
   })
 
-  // Why: park-churn notices are per-tab but the ring is process-wide, so many
-  // tabs churning at once would otherwise evict the pre-crash trail.
+  // Per-tab churn must not evict the process-wide pre-crash trail.
   it('coalesces park-verdict churn notices by trigger across tabs', () => {
     emitRendererBreadcrumb({
       name: 'terminal_park_verdict_churn',
@@ -269,9 +268,7 @@ describe('renderer breadcrumb IPC routing', () => {
     }
   })
 
-  // Why: `burst` means damping engaged a commit short of React #185 while
-  // `window` is slow benign churn. A shared key would drop the near-crash
-  // signal into the slow-churn slot.
+  // Keep near-crash burst evidence separate from slow window churn.
   it('keeps burst and window park-verdict churn triggers in separate slots', () => {
     emitRendererBreadcrumb({
       name: 'terminal_park_verdict_churn',
@@ -287,9 +284,7 @@ describe('renderer breadcrumb IPC routing', () => {
     ).toEqual(['terminal_park_verdict_churn:burst', 'terminal_park_verdict_churn:window'])
   })
 
-  // Why: every hidden pane is 0x0, so one post-reload reattach wave exhausts
-  // the fit budget once per mounted pane inside ~60ms. Windows crash
-  // F0BKR84AHEH lost 26-90% of its 30-entry ring to two such bursts.
+  // Hidden panes exhaust fit retries together; coalesce their burst without losing pane counts.
   it('coalesces fit-retry exhaustion by name, not by pane', () => {
     emitRendererBreadcrumb({
       name: 'terminal_safe_fit_retry_exhausted',
@@ -307,8 +302,7 @@ describe('renderer breadcrumb IPC routing', () => {
     }
   })
 
-  // Why kind-scoped: a routine post-wake atlas reset must never suppress the
-  // context-loss crumb that says the driver gave up on this renderer.
+  // Routine atlas resets must not suppress GPU context-loss evidence.
   it('coalesces WebGL diagnostics per kind so one kind cannot mask another', () => {
     emitRendererBreadcrumb({
       name: 'terminal_webgl_diagnostic',
@@ -350,8 +344,7 @@ describe('renderer breadcrumb IPC routing', () => {
     ])
   })
 
-  // Why: the renderer guard is once per tab-id/verdict, so one stale worktree
-  // map can emit enough crumbs to evict the pre-crash trail.
+  // A stale worktree map can emit once per tab; bound the resulting storm.
   it('coalesces duplicate-tab-owner notices across tabs', () => {
     emitRendererBreadcrumb({
       name: 'terminal_tab_id_owned_by_multiple_worktrees',
@@ -371,8 +364,7 @@ describe('renderer breadcrumb IPC routing', () => {
     }
   })
 
-  // Why flag-scoped: coalescing keeps only the newest payload, and the verdict
-  // flips under a persisting duplicate, so one would erase the other.
+  // Last-write coalescing must preserve both convergence verdicts.
   it('keeps a non-converging duplicate-tab-owner notice out of the converging one', () => {
     emitRendererBreadcrumb({
       name: 'terminal_tab_id_owned_by_multiple_worktrees',
@@ -391,6 +383,77 @@ describe('renderer breadcrumb IPC routing', () => {
       'terminal_tab_id_owned_by_multiple_worktrees:false',
       'terminal_tab_id_owned_by_multiple_worktrees:true'
     ])
+  })
+
+  // Back-to-back React cascades must not flush the 30-entry ring.
+  it('coalesces react commit cascade notices from one driver into one slot', () => {
+    emitRendererBreadcrumb({
+      name: 'react_commit_cascade',
+      data: { commits: 40, rendererSurface: 'main', driverFrame: 'tabs.ts:12:3 bump' }
+    })
+    emitRendererBreadcrumb({
+      name: 'react_commit_cascade',
+      data: { commits: 41, rendererSurface: 'main', driverFrame: 'tabs.ts:12:3 bump' }
+    })
+
+    expect(recordCrashBreadcrumbMock).not.toHaveBeenCalled()
+    expect(
+      recordCoalescedCrashBreadcrumbMock.mock.calls.map(
+        (call) => (call[0] as { coalesceKey: string }).coalesceKey
+      )
+    ).toEqual([
+      'react_commit_cascade:main:tabs.ts:12:3 bump',
+      'react_commit_cascade:main:tabs.ts:12:3 bump'
+    ])
+  })
+
+  // Last-write coalescing must preserve distinct surfaces and drivers.
+  it('keeps different cascade surfaces and drivers in separate slots', () => {
+    emitRendererBreadcrumb({
+      name: 'react_commit_cascade',
+      data: { commits: 40, rendererSurface: 'main', driverFrame: 'tabs.ts:12:3 bump' }
+    })
+    emitRendererBreadcrumb({
+      name: 'react_commit_cascade',
+      data: { commits: 40, rendererSurface: 'dashboard-popout', driverFrame: 'tabs.ts:12:3 bump' }
+    })
+    emitRendererBreadcrumb({
+      name: 'react_commit_cascade',
+      data: { commits: 40, rendererSurface: 'main', storeWrites: 0 }
+    })
+
+    expect(
+      new Set(
+        recordCoalescedCrashBreadcrumbMock.mock.calls.map(
+          (call) => (call[0] as { coalesceKey: string }).coalesceKey
+        )
+      ).size
+    ).toBe(3)
+  })
+
+  // The stack key permits a 4000-character budget instead of ordinary detail truncation.
+  it('keeps the full driver stack on a react commit cascade notice', () => {
+    const driverStack = `tabs.ts:12:3 bump\n${'tabs.ts:99:1 other\n'.repeat(60)}`
+    emitRendererBreadcrumb({
+      name: 'react_commit_cascade',
+      data: { commits: 40, rendererSurface: 'main', driverFrame: 'tabs.ts:12:3 bump', driverStack }
+    })
+
+    const recorded = recordCoalescedCrashBreadcrumbMock.mock.calls[0]?.[0] as
+      | { data: { driverStack: string } }
+      | undefined
+    expect(recorded?.data.driverStack.length).toBeGreaterThan(240)
+  })
+
+  // A once-per-renderer diagnostic installation failure does not need coalescing.
+  it('records the uninstalled self-check notice directly', () => {
+    emitRendererBreadcrumb({ name: 'react_commit_cascade_uninstalled' })
+
+    expect(recordCrashBreadcrumbMock).toHaveBeenCalledWith(
+      'react_commit_cascade_uninstalled',
+      undefined
+    )
+    expect(recordCoalescedCrashBreadcrumbMock).not.toHaveBeenCalled()
   })
 
   it('records non-error renderer breadcrumbs without coalescing', () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { NativeChatMessage } from '../../../../shared/native-chat-types'
+import { normalizeImageTranscriptMessages } from '../../../../shared/native-chat-image-transcript-markers'
 import { assembleNativeChatSession } from './native-chat-session-assembler'
 import {
   applyAppends,
@@ -28,8 +29,7 @@ function fullRebuild(messages: NativeChatMessage[]): NativeChatMessage[] {
   }).messages
 }
 
-// Drive the incremental assembler over base + each append batch, capturing the
-// emitted list after every batch so we can compare each prefix to a full rebuild.
+// Compare every append prefix with the canonical full rebuild.
 function incrementalPrefixes(
   base: NativeChatMessage[],
   batches: NativeChatMessage[][]
@@ -44,18 +44,13 @@ function incrementalPrefixes(
 }
 
 describe('incremental assembler — oracle differential', () => {
-  // An adversarial append sequence exercising every hard case the design calls
-  // out: re-emitted ids, transcript-supersedes-hook, turnKey collisions,
-  // out-of-order + null timestamps, empty batches.
   const base: NativeChatMessage[] = [
     msg({ id: 'a', timestamp: 10, role: 'user', blocks: [{ type: 'text', text: 'hello' }] }),
     msg({ id: 'b', timestamp: 20, blocks: [{ type: 'text', text: 'partial' }], source: 'hook' })
   ]
 
   const batches: NativeChatMessage[][] = [
-    // pure tail append (fast path)
     [msg({ id: 'c', timestamp: 30, blocks: [{ type: 'text', text: 'c' }] })],
-    // empty batch
     [],
     // re-emit id 'b' from transcript — supersedes the hook copy in place
     [
@@ -68,8 +63,7 @@ describe('incremental assembler — oracle differential', () => {
     ],
     // out-of-order timestamp: sorts BEFORE the current tail → forces re-sort
     [msg({ id: 'd', timestamp: 5, blocks: [{ type: 'text', text: 'early' }] })],
-    // turnKey collision with 'a': same role+text+timestamp, DIFFERENT source
-    // (scrape) — lower priority, must be dropped by the cross-source gate
+    // A lower-priority scrape with the same turn identity must lose to transcript data.
     [
       msg({
         id: 'a-scrape',
@@ -83,9 +77,7 @@ describe('incremental assembler — oracle differential', () => {
     [msg({ id: 'e', timestamp: 40, role: 'user', blocks: [{ type: 'text', text: 'hello' }] })],
     // null timestamp append → forces re-sort, sorts to the front
     [msg({ id: 'f', timestamp: null, blocks: [{ type: 'text', text: 'f' }] })],
-    // re-emitted id at the tail (already seen 'c'), no change
     [msg({ id: 'c', timestamp: 30, blocks: [{ type: 'text', text: 'c' }] })],
-    // multi-message tail batch
     [
       msg({ id: 'g', timestamp: 50, blocks: [{ type: 'text', text: 'g' }] }),
       msg({ id: 'h', timestamp: 60, blocks: [{ type: 'text', text: 'h' }] })
@@ -95,7 +87,6 @@ describe('incremental assembler — oracle differential', () => {
   it('matches a full rebuild for every prefix of the append sequence', () => {
     const inc = incrementalPrefixes(base, batches)
     let cumulative = [...base]
-    // Prefix 0 = base only.
     expect(inc[0]).toEqual(fullRebuild(cumulative))
     for (let i = 0; i < batches.length; i += 1) {
       cumulative = [...cumulative, ...batches[i]!]
@@ -120,5 +111,80 @@ describe('incremental assembler — oracle differential', () => {
     reset(assembler, base)
     const out = assembler.messages
     expect(applyAppends(assembler, [])).toBe(out)
+  })
+
+  it('keeps equal-timestamp image companions ahead of prompts for normalization', () => {
+    const assembler = createIncrementalAssembler()
+    const prompt = msg({
+      id: 'a-prompt',
+      role: 'user',
+      timestamp: 100,
+      blocks: [{ type: 'text', text: '[Image #1] inspect this' }]
+    })
+    const companion = msg({
+      id: 'z-companion',
+      role: 'user',
+      timestamp: 100,
+      blocks: [{ type: 'text', text: '[Image: source: /tmp/image.png]' }]
+    })
+
+    const assembled = reset(assembler, [prompt, companion])
+    expect(assembled.map((message) => message.id)).toEqual(['z-companion', 'a-prompt'])
+    expect(normalizeImageTranscriptMessages(assembled)).toEqual([
+      {
+        ...prompt,
+        blocks: [
+          { type: 'image-ref', path: '/tmp/image.png' },
+          { type: 'text', text: 'inspect this' }
+        ]
+      }
+    ])
+  })
+
+  it('does not cross-fold distinct equal-timestamp image turns', () => {
+    const assembler = createIncrementalAssembler()
+    const firstPrompt = msg({
+      id: 'a-first-prompt',
+      role: 'user',
+      timestamp: 100,
+      blocks: [{ type: 'text', text: '[Image #1] inspect the first' }]
+    })
+    const firstCompanion = msg({
+      id: 'z-first-companion',
+      role: 'user',
+      timestamp: 100,
+      blocks: [{ type: 'text', text: '[Image: source: /tmp/first.png]' }]
+    })
+    const secondPrompt = msg({
+      id: 'b-second-prompt',
+      role: 'user',
+      timestamp: 100,
+      blocks: [{ type: 'text', text: '[Image #1] inspect the second' }]
+    })
+    const secondCompanion = msg({
+      id: 'y-second-companion',
+      role: 'user',
+      timestamp: 100,
+      blocks: [{ type: 'text', text: '[Image: source: /tmp/second.png]' }]
+    })
+
+    const assembled = reset(assembler, [firstPrompt, firstCompanion, secondPrompt, secondCompanion])
+
+    expect(normalizeImageTranscriptMessages(assembled)).toEqual([
+      {
+        ...firstPrompt,
+        blocks: [
+          { type: 'image-ref', path: '/tmp/first.png' },
+          { type: 'text', text: 'inspect the first' }
+        ]
+      },
+      {
+        ...secondPrompt,
+        blocks: [
+          { type: 'image-ref', path: '/tmp/second.png' },
+          { type: 'text', text: 'inspect the second' }
+        ]
+      }
+    ])
   })
 })

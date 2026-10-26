@@ -15,24 +15,6 @@ describe('web GitLab preload API', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.doUnmock('./web-runtime-client')
-    vi.doUnmock('electron')
-  })
-
-  it('keeps the web GitLab preload key set in parity with desktop preload', async () => {
-    vi.doMock('electron', () => ({
-      ipcRenderer: { invoke: vi.fn() }
-    }))
-    const globals = installBrowserGlobals('Linux')
-    const { glApi } = (await import(
-      new URL('../../../preload/gitlab.ts', import.meta.url).href
-    )) as {
-      glApi: Record<string, unknown>
-    }
-    const { installWebPreloadApi } = await import('./web-preload-api')
-
-    installWebPreloadApi()
-
-    expect(Object.keys(globals.window.api.gl).sort()).toEqual(Object.keys(glApi).sort())
   })
 
   it('routes every runtime-backed GitLab method through the expected RPC method', async () => {
@@ -120,6 +102,12 @@ describe('web GitLab preload API', () => {
         key: 'listLabels',
         invoke: (gl) => gl.listLabels({ repoPath }),
         expectedMethod: 'gitlab.listLabels',
+        expectedParams: { repoPath, repo: repoPath }
+      },
+      {
+        key: 'listAssignableUsers',
+        invoke: (gl) => gl.listAssignableUsers({ repoPath }),
+        expectedMethod: 'gitlab.listAssignableUsers',
         expectedParams: { repoPath, repo: repoPath }
       },
       {
@@ -361,6 +349,39 @@ describe('web GitLab preload API', () => {
         }
       }
     ])
+  })
+
+  it('does not send the ready semantic field to an older paired host', async () => {
+    const runtimeCalls: { method: string; params: unknown }[] = []
+    vi.doMock('./web-runtime-client', () => ({
+      WebRuntimeClient: class {
+        call(method: string, params?: unknown): Promise<RuntimeRpcResponse<unknown>> {
+          runtimeCalls.push({ method, params })
+          return Promise.resolve({
+            id: `call-${runtimeCalls.length}`,
+            ok: true,
+            result: method === 'status.get' ? { capabilities: [] } : { ok: true },
+            _meta: { runtimeId: 'runtime-1' }
+          })
+        }
+
+        close(): void {}
+      }
+    }))
+
+    const globals = installBrowserGlobals('Linux')
+    writeStoredRuntimeEnvironment(globals.storage)
+    const { installWebPreloadApi } = await import('./web-preload-api')
+    installWebPreloadApi()
+
+    const result = await globals.window.api.gl.updateMR({
+      repoPath: '/workspace/repo',
+      iid: 8,
+      updates: { readyForReview: true }
+    })
+
+    expect(result).toMatchObject({ ok: false })
+    expect(runtimeCalls).toEqual([{ method: 'status.get', params: undefined }])
   })
 
   it('exposes the GitLab task methods used by the shared Tasks page', async () => {

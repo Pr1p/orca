@@ -1,4 +1,8 @@
 import type { PersistedState } from '../../../shared/persisted-state-types'
+import {
+  normalizeProjectHostSetupRows,
+  normalizeProjectRows
+} from '../../../shared/project-catalog-row-normalization'
 import type { WorkspaceSessionState } from '../../../shared/workspace-session-state-types'
 import { parseWorkspaceSessionSalvaging } from '../../../shared/workspace-session-salvage'
 import {
@@ -28,7 +32,7 @@ export function normalizeLoadedLocalSession(
       '[persistence] Salvaged workspace session; dropped corrupt entries:',
       workspaceSessionSalvageLogDetails(result)
     )
-    // Why: salvage repairs only the in-memory session; without a save the corrupt entries stay on disk and get re-dropped every launch.
+    // Persist salvaged state so corrupt entries do not recur on every launch.
     markNeedsSave()
   }
   return { ...defaults.workspaceSession, ...result.value }
@@ -37,14 +41,15 @@ export function normalizeLoadedLocalSession(
 export function normalizeLoadedHostSessions(
   parsed: PersistedState,
   defaults: PersistedState,
+  localSession: WorkspaceSessionState,
   markNeedsSave: () => void
 ): PersistedState['workspaceSessionsByHostId'] {
   const { partitions, repaired } = parseWorkspaceSessionsByHostId(
     parsed.workspaceSessionsByHostId,
-    defaults.workspaceSession
+    defaults.workspaceSession,
+    localSession
   )
   if (repaired) {
-    // Why: salvage repairs only the in-memory partitions; without a save the corrupt entries stay on disk and get re-dropped every launch.
     markNeedsSave()
   }
   return partitions
@@ -58,9 +63,22 @@ export function normalizeLoadedAutomationRuns(
     return []
   }
   const runs = pruneAutomationRuns(backfillAutomationRunNumbers(parsed.automationRuns))
-  // Why: nothing else marks dirty, so an oversized legacy file would otherwise only shrink at the next unrelated save.
+  // Persist pruning even when no unrelated save follows startup.
   if (runs.length !== parsed.automationRuns.length) {
     markNeedsSave()
   }
   return runs
+}
+
+/** Repair untrusted catalog fields and persist them before republishing to paired clients. */
+export function normalizeLoadedProjectCatalog(
+  parsed: Partial<Pick<PersistedState, 'projects' | 'projectHostSetups'>>,
+  markNeedsSave: () => void
+): Pick<PersistedState, 'projects' | 'projectHostSetups'> {
+  const projects = normalizeProjectRows(parsed.projects ?? [])
+  const projectHostSetups = normalizeProjectHostSetupRows(parsed.projectHostSetups ?? [])
+  if (projects !== parsed.projects || projectHostSetups !== parsed.projectHostSetups) {
+    markNeedsSave()
+  }
+  return { projects, projectHostSetups }
 }

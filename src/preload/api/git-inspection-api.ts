@@ -3,6 +3,7 @@ import type {
   GitCommitCompareResult,
   GitDiffResult
 } from '../../shared/git-diff-compare-types'
+import type { GitMutationInFlight } from '../../shared/git-mutation-in-flight'
 import type {
   GitConflictOperation,
   GitStagingArea,
@@ -20,7 +21,9 @@ export type GitInspectionApi = {
   status: (args: {
     worktreePath: string
     connectionId?: string
+    admissionTier?: 'interactive' | 'status' | 'background'
     includeIgnored?: boolean
+    includeLineStats?: boolean
     bypassEffectiveUpstreamNegativeCache?: boolean
     reuseLineStats?: boolean
     /** Merge-base OID to measure the branch line total against; omit to skip the work. */
@@ -55,6 +58,10 @@ export type GitInspectionApi = {
     worktreePath: string
     connectionId?: string
   }) => Promise<GitConflictOperation>
+  mutationInFlight: (args: {
+    worktreePath: string
+    connectionId?: string
+  }) => Promise<GitMutationInFlight>
   diff: (args: {
     worktreePath: string
     filePath: string
@@ -66,6 +73,7 @@ export type GitInspectionApi = {
     worktreePath: string
     baseRef: string
     connectionId?: string
+    admissionTier?: 'interactive' | 'status' | 'background'
   }) => Promise<GitBranchCompareResult>
   commitCompare: (args: {
     worktreePath: string

@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import type { Repo } from '../../../../shared/repo-types'
-import { getProjectHostSetupWorktreeMeta } from '../../../../shared/project-host-setup-projection'
+import { getProjectHostSetupWorktreeMeta } from '../../../../shared/project-host-setup-lookup'
 import type { CreateWorktreeResult } from '../../../../shared/worktree/create-types'
 import type { Store } from '../../../persistence/loading-store/store'
 import type { CreateWorktreeArgsWithSystemProvenance } from '../ipc-context-schemas'
 import { getFolderWorkspaceInstanceId, mergeFolderWorkspace } from '../folder-workspace-model'
+import { resolveWorktreeCreateDisplayNameRequest } from '../../worktree-display-name'
+import { hostWorktreeTargetForRepo } from '../../../persistence/host-qualified-worktree-meta'
 
 export function createFolderWorkspace(
   args: CreateWorktreeArgsWithSystemProvenance,
@@ -14,12 +16,22 @@ export function createFolderWorkspace(
   const now = Date.now()
   const instanceId = randomUUID()
   const worktreeId = getFolderWorkspaceInstanceId(repo, instanceId)
-  const meta = store.setWorktreeMeta(worktreeId, {
+  const displayNameRequest = resolveWorktreeCreateDisplayNameRequest(
+    args.displayName,
+    args.displayNameKind,
+    args.name,
+    args.cliProvenance?.kind === 'created-by-cli',
+    args.nameWasGenerated === true
+  )
+  const meta = store.setWorktreeMeta(hostWorktreeTargetForRepo(worktreeId, repo), {
     instanceId,
     ...(store.getProjectHostSetups
       ? getProjectHostSetupWorktreeMeta(store.getProjectHostSetups(), repo)
       : {}),
-    displayName: args.displayName || args.name,
+    displayName: displayNameRequest.value || args.name,
+    ...(displayNameRequest.kind === 'user' && displayNameRequest.value
+      ? { displayNameIsPinned: true }
+      : {}),
     lastActivityAt: now,
     createdAt: now,
     orcaCreatedAt: now,
@@ -47,6 +59,7 @@ export function createFolderWorkspace(
       : {}),
     ...(args.linkedGiteaPR !== undefined ? { linkedGiteaPR: args.linkedGiteaPR } : {}),
     ...(args.linkedWorkItem !== undefined ? { linkedWorkItem: args.linkedWorkItem } : {}),
+    ...(args.linkedItems !== undefined ? { linkedItems: args.linkedItems } : {}),
     ...(args.linkedTaskSourceContext !== undefined
       ? { linkedTaskSourceContext: args.linkedTaskSourceContext }
       : {})

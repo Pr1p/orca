@@ -94,8 +94,7 @@ vi.mock('@/lib/lazy-with-retry', async () => {
               retained.content = operations[0]?.text ?? retained.content
             }
           }
-          // Why: exercising the real mount reconciler makes outer key ordering
-          // observable without replacing Monaco's retained-model semantics.
+          // Use the real mount reconciler to observe key ordering with retained-model behavior intact.
           syncContentOnMount(
             {
               getModel: () => model,
@@ -122,6 +121,9 @@ vi.mock('@/store', () => ({
     (selector: (state: Record<string, unknown>) => unknown) =>
       selector({
         worktreesByRepo: {},
+        settings: {},
+        markdownRichModeSizeOverride: {},
+        setMarkdownRichModeSizeOverride: vi.fn(),
         openFile: vi.fn(),
         openMarkdownPreview: vi.fn(),
         openConflictReviewFile: vi.fn(),
@@ -181,6 +183,7 @@ function props(activeFile: OpenFile, content: string) {
     isCsv: false,
     isNotebook: false,
     mdViewMode: 'rich' as const,
+    inlineMarkdownRenderState: null,
     isChangesMode: false,
     sideBySide: false,
     pendingEditorReveal: null,
@@ -244,8 +247,7 @@ describe('EditorContent Monaco lifecycle boundary', () => {
   })
 
   it('keeps the diff editor mounted when a save updates the modified content', () => {
-    // Why: saves must rotate the retained model for freshness without remounting
-    // the editor and flashing Monaco's loading placeholder.
+    // Saves refresh retained models without remounting the widget and flashing its loading placeholder.
     const diff = file('/repo/notes.ts', { mode: 'diff', diffSource: 'unstaged' })
 
     const view = render(<EditorContent {...diffProps(diff, 'first save')} />)
@@ -286,8 +288,7 @@ describe('EditorContent Monaco lifecycle boundary', () => {
 
     render(<EditorContent {...props(source, 'source content')} />)
 
-    // Why: without the pane id Monaco cannot match the handoff, so it silently leaves the request
-    // armed and a later rich-mode remount of this pane steals focus back.
+    // Missing pane IDs leave reveals armed, allowing later rich-mode remounts to steal focus.
     expect(lifecycle.mountedProps.at(0)?.viewStateId).toBe('same-pane')
   })
 
@@ -323,6 +324,10 @@ describe('EditorContent Monaco lifecycle boundary', () => {
         resolvedLanguage="markdown"
         isMarkdown
         mdViewMode="rich"
+        inlineMarkdownRenderState={{
+          renderMode: 'rich-editor',
+          richModeUnsupportedMessage: null
+        }}
       />
     )
 

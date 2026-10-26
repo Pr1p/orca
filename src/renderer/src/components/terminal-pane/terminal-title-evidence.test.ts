@@ -9,6 +9,10 @@ describe('resolvePaneDisplayTitle', () => {
   it('passes an unowned title through unchanged', () => {
     expect(resolvePaneDisplayTitle('bash', undefined)).toBe('bash')
   })
+
+  it('rewrites an OMP wrapper title through explicit launch Pi ownership', () => {
+    expect(resolvePaneDisplayTitle('\u280b OMP', 'pi', true)).toBe('\u280b Pi')
+  })
 })
 
 describe('resolvePaneTitleDecision', () => {
@@ -30,8 +34,7 @@ describe('resolvePaneTitleDecision', () => {
     const decision = resolvePaneTitleDecision({
       normalizedTitle: 'Pi ready',
       rawTitle: '✦ Gemini CLI',
-      // Display label follows the sticky/tab-scoped owner, but the renderer veto
-      // sees no current pane-scoped owner, so the genuine Gemini pane goes DOM.
+      // Sticky ownership labels the tab, but only current pane ownership can veto Gemini’s DOM fallback.
       displayOwnerAgentType: 'omp',
       rendererOwnerAgentType: undefined,
       userGpuMode: 'auto'

@@ -1,61 +1,51 @@
-import { ArrowLeft, ArrowRight, Loader2, RefreshCw } from 'lucide-react'
+import { ArrowLeft, ArrowRight, RefreshCw, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { translate } from '@/i18n/i18n'
-import BrowserAddressBar from './BrowserAddressBar'
-import type { BrowserAddressBarEditSessionBinding } from './use-browser-address-bar-edit-session'
+import { cn } from '@/lib/utils'
+import {
+  BROWSER_CHROME_ADDRESS_SLOT_ATTRIBUTE,
+  BROWSER_CHROME_ADDRESS_SLOT_HEIGHT_CLASS
+} from './browser-chrome-address-slot'
 
-/**
- * The history/reload/navigate surface a browser backend must provide to be driven by
- * browser chrome. Local and client-hosted panes back this with a <webview>, the legacy
- * remote pane with runtime RPCs.
- */
+/** Local/client-hosted panes provide webview controls; legacy streamed panes provide runtime RPCs. */
 export type BrowserNavigationControls = {
   canGoBack: boolean
   canGoForward: boolean
-  loading: boolean
   goBack: () => void
   goForward: () => void
   reload: () => void
   navigate: (url: string) => void
 }
 
-/**
- * The toolbar row every browser pane shares: back, forward, reload and the address bar.
- * Panes with a richer reload affordance pass `reloadControl`; pane-specific tools
- * (annotations, downloads, find) render as trailing children.
- */
+/** Share history/tool layout while the identity slot varies between editable URLs and read-only document paths. */
 export function BrowserNavigationControlRow({
   controls,
-  addressBarValue,
-  onAddressBarChange,
-  onSubmitAddressBar,
-  addressBarInputRef,
-  dismissSuggestionsRef,
-  addressBarEditSession,
+  addressSlot,
   reloadControl,
   reloadLabel,
-  addressBarLeadingIcon,
+  reloadShowsStop = false,
+  showTourAnchors = true,
+  rowRef,
   children
 }: {
   controls: BrowserNavigationControls
-  addressBarValue: string
-  onAddressBarChange: (value: string) => void
-  onSubmitAddressBar: () => void
-  addressBarInputRef: React.RefObject<HTMLInputElement | null>
-  dismissSuggestionsRef?: React.MutableRefObject<(() => void) | null>
-  /** Set by panes React remounts mid-edit; see BrowserAddressBar's `editSession`. */
-  addressBarEditSession?: BrowserAddressBarEditSessionBinding | null
+  /** The surface's identity widget: an editable address bar, or a read-only document chip. */
+  addressSlot: React.ReactNode
   reloadControl?: React.ReactNode
   /** Accessible name for the default reload button, which doubles as Stop and Retry. */
   reloadLabel?: string
-  /** Replaces the address bar's leading globe (e.g. the SSH egress indicator). */
-  addressBarLeadingIcon?: React.ReactNode
+  /** Only when the default button's click stops the load, matching its Stop label. */
+  reloadShowsStop?: boolean
+  /** Off for surfaces the browsing tour does not cover — a second anchor would steal its steps. */
+  showTourAnchors?: boolean
+  rowRef?: React.Ref<HTMLDivElement>
   children?: React.ReactNode
 }): React.JSX.Element {
   return (
     <div
-      className="relative z-10 flex items-center gap-2 border-b border-border/70 bg-background/95 px-3 py-1.5"
-      data-contextual-tour-target="browser-toolbar"
+      ref={rowRef}
+      className="relative z-10 flex shrink-0 items-center gap-2 border-b border-border/70 bg-background/95 px-3 py-1.5"
+      {...(showTourAnchors ? { 'data-contextual-tour-target': 'browser-toolbar' } : {})}
     >
       <Button
         size="icon"
@@ -85,24 +75,19 @@ export function BrowserNavigationControlRow({
           onClick={controls.reload}
           aria-label={reloadLabel ?? translate('browser.navigation.reload', 'Reload')}
         >
-          {controls.loading ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : (
-            <RefreshCw className="size-4" />
-          )}
+          {reloadShowsStop ? <X className="size-4" /> : <RefreshCw className="size-4" />}
         </Button>
       )}
 
-      <BrowserAddressBar
-        value={addressBarValue}
-        onChange={onAddressBarChange}
-        onSubmit={onSubmitAddressBar}
-        onNavigate={controls.navigate}
-        inputRef={addressBarInputRef}
-        dismissSuggestionsRef={dismissSuggestionsRef}
-        editSession={addressBarEditSession}
-        leadingIcon={addressBarLeadingIcon}
-      />
+      <div
+        className={cn(
+          'flex min-w-0 flex-1 items-stretch',
+          BROWSER_CHROME_ADDRESS_SLOT_HEIGHT_CLASS
+        )}
+        {...{ [BROWSER_CHROME_ADDRESS_SLOT_ATTRIBUTE]: 'true' }}
+      >
+        {addressSlot}
+      </div>
 
       {children}
     </div>

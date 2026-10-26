@@ -1,7 +1,10 @@
 import type { FolderWorkspace } from '../../../../shared/folder-workspace-types'
 import { folderWorkspaceToWorktree } from '../../../../shared/folder-workspace-worktree'
 import type { Worktree } from '../../../../shared/worktree/types'
-import { compareWorktreeSortLabel } from './smart-sort'
+import {
+  buildWorktreeSortLabels,
+  compareWorktreeSortLabel
+} from '../../../../shared/sidebar-list/smart-sort'
 
 export type WorktreeManualOrderCatalog = {
   orderedIds: readonly string[]
@@ -15,13 +18,13 @@ export function buildWorktreeManualOrderCatalog(args: {
   const rows = [
     ...args.worktrees,
     ...args.folderWorkspaces.map((workspace) => folderWorkspaceToWorktree(workspace))
-  ]
-    .filter((row) => !row.isArchived)
-    .sort(
-      (left, right) =>
-        (right.manualOrder ?? right.sortOrder) - (left.manualOrder ?? left.sortOrder) ||
-        compareWorktreeSortLabel(left, right)
-    )
+  ].filter((row) => !row.isArchived)
+  const labels = buildWorktreeSortLabels(rows)
+  rows.sort(
+    (left, right) =>
+      (right.manualOrder ?? right.sortOrder) - (left.manualOrder ?? left.sortOrder) ||
+      compareWorktreeSortLabel(left, right, labels)
+  )
   const rowsById = new Map<string, Worktree[]>()
   for (const row of rows) {
     const matches = rowsById.get(row.id)

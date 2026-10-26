@@ -1,14 +1,13 @@
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest'
 import path from 'node:path'
+import { scanWorkspacePorts } from './local-workspace-port-scanner'
+import { attributePortToWorkspace, isContainerProcess } from './local-workspace-port-attribution'
 import {
-  attributePortToWorkspace,
-  isContainerProcess,
   parseLsofListeningOutput,
   parseNetstatListeningOutput,
-  parseProcNetTcp,
-  resetWorkspacePortScanTimeoutBackoffForTests,
-  scanWorkspacePorts
-} from './local-workspace-port-scanner'
+  parseProcNetTcp
+} from './local-workspace-platform-port-scanner'
+import { resetWorkspacePortScanTimeoutBackoffForTests } from './local-workspace-port-scan-state'
 import { PortScanCommandTimeoutError } from './port-scan-command-protocol'
 
 const runPortScanCommandMock = vi.hoisted(() => vi.fn())
@@ -47,6 +46,35 @@ describe('local workspace port scanner parsing', () => {
 
     expect(ports).toEqual([
       { pid: 123, processName: 'node', host: '127.0.0.1', port: 5173 },
+      { pid: 456, processName: 'nginx', host: '*', port: 8080 }
+    ])
+  })
+
+  it('keeps the socket identity from lsof -F d and tolerates its absence', () => {
+    const ports = parseLsofListeningOutput(
+      [
+        'p123',
+        'cnode',
+        'f18',
+        'd0x469ca588d83e7924',
+        'n127.0.0.1:5173',
+        'f19',
+        'n127.0.0.1:5174',
+        'p456',
+        'cnginx',
+        'n*:8080'
+      ].join('\n')
+    )
+
+    expect(ports).toEqual([
+      {
+        pid: 123,
+        processName: 'node',
+        socketId: '0x469ca588d83e7924',
+        host: '127.0.0.1',
+        port: 5173
+      },
+      { pid: 123, processName: 'node', host: '127.0.0.1', port: 5174 },
       { pid: 456, processName: 'nginx', host: '*', port: 8080 }
     ])
   })
@@ -233,6 +261,44 @@ describe('scanWorkspacePorts attribution work', () => {
   })
 })
 
+describe('scanWorkspacePorts lsof flags', () => {
+  afterEach(() => {
+    resetWorkspacePortScanTimeoutBackoffForTests()
+    vi.restoreAllMocks()
+    runPortScanCommandMock.mockReset()
+  })
+
+  it('runs both macOS lsof commands without blocking on mounted file systems', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
+    runPortScanCommandMock.mockImplementation(async (command: string, args: string[]) => {
+      if (command === 'lsof' && args.includes('-iTCP')) {
+        return { stdout: 'p123\ncnode\nd0x1\nn127.0.0.1:3000\n', spawnMs: 5 }
+      }
+      if (command === 'lsof') {
+        return { stdout: 'p123\nfcwd\nn/repo/service\n', spawnMs: 5 }
+      }
+      return { stdout: '123 node /repo/service/server.js\n', spawnMs: 5 }
+    })
+
+    const scan = await scanWorkspacePorts(worktrees, urlWatcherStub())
+
+    const lsofArgs = runPortScanCommandMock.mock.calls
+      .filter(([command]) => command === 'lsof')
+      .map(([, args]) => args)
+    expect(lsofArgs).toEqual([
+      ['-b', '-w', '-nP', '-iTCP', '-sTCP:LISTEN', '-F', 'pcnd'],
+      ['-b', '-w', '-a', '-p', '123', '-d', 'cwd', '-Fn']
+    ])
+    expect(scan.ports).toEqual([
+      expect.objectContaining({
+        port: 3000,
+        pid: 123,
+        owner: expect.objectContaining({ confidence: 'cwd', path: '/repo' })
+      })
+    ])
+  })
+})
+
 describe('scanWorkspacePorts command timeout', () => {
   afterEach(() => {
     vi.useRealTimers()
@@ -304,8 +370,7 @@ describe('scanWorkspacePorts with delayed process creation', () => {
     runPortScanCommandMock.mockReset()
   })
 
-  // Regression for #11161: an endpoint-security hook makes CreateProcessW take
-  // seconds, so the command's own budget must not be charged for the spawn.
+  // EDR spawn delay must not consume the command execution budget (#11161).
   it('does not report a command timeout when only process creation was delayed', async () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
     runPortScanCommandMock.mockResolvedValue({ stdout: LSOF_LISTEN_OUTPUT, spawnMs: 4_200 })
@@ -328,8 +393,7 @@ describe('scanWorkspacePorts with delayed process creation', () => {
     expect(scan.ports).toHaveLength(1)
   })
 
-  // Regression for #11161 review: a metadata-less scan must not be reconciled as
-  // "the listener vanished" — that evicts advertised URLs only a PTY can restore.
+  // Missing metadata cannot prove listener absence; eviction would lose PTY-only URL evidence (#11161).
   it('does not reconcile advertised URLs for a scan that skipped metadata', async () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
     runPortScanCommandMock.mockResolvedValue({ stdout: LSOF_LISTEN_OUTPUT, spawnMs: 4_200 })
@@ -374,8 +438,6 @@ describe('scanWorkspacePorts with delayed process creation', () => {
     expect(runPortScanCommandMock).toHaveBeenCalledTimes(3)
   })
 
-  // Regression for #11161 review: the skip parity is driven by the 30s poller,
-  // so a one-shot user action would otherwise land on a random parity.
   it('keeps probing metadata for callers that require attribution', async () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
     mockStalledDarwinScan()
@@ -388,18 +450,184 @@ describe('scanWorkspacePorts with delayed process creation', () => {
 
   it('does not let a required-metadata scan reset the background skip parity', async () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
-    mockStalledDarwinScan()
+    // Fresh PIDs prevent metadata reuse from hiding whether this cycle probed.
+    let listenerPid = 123
+    runPortScanCommandMock.mockImplementation(async (command: string, args: string[]) => {
+      if (command === 'lsof' && args.includes('-iTCP')) {
+        listenerPid += 1
+        return { stdout: `p${listenerPid}\ncnode\nn127.0.0.1:5173`, spawnMs: 4_200 }
+      }
+      if (command === 'lsof') {
+        return { stdout: [`p${listenerPid}`, 'n/repo'].join('\n'), spawnMs: 4_200 }
+      }
+      return { stdout: `${listenerPid} node /repo/server.js`, spawnMs: 4_200 }
+    })
 
     await scanWorkspacePorts(worktrees, urlWatcherStub())
     await scanWorkspacePorts(worktrees, urlWatcherStub(), { requireMetadata: true })
     await scanWorkspacePorts(worktrees, urlWatcherStub())
 
-    // 1 skipped + 3 required + 3 recovered; a reset parity would skip twice.
     expect(runPortScanCommandMock).toHaveBeenCalledTimes(7)
   })
 
-  // Regression for #11161 review: without carry-forward the panel moves every
-  // workspace port into External on each skipped cycle.
+  it('serves an unchanged listener from remembered metadata instead of re-probing', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
+    runPortScanCommandMock.mockImplementation(async (command: string, args: string[]) => {
+      if (command === 'lsof' && args.includes('-iTCP')) {
+        return { stdout: LSOF_LISTEN_OUTPUT, spawnMs: 5 }
+      }
+      if (command === 'lsof') {
+        return { stdout: ['p123', 'n/repo'].join('\n'), spawnMs: 5 }
+      }
+      return { stdout: '123 node /repo/server.js', spawnMs: 5 }
+    })
+
+    const first = await scanWorkspacePorts(worktrees, urlWatcherStub())
+    expect(runPortScanCommandMock).toHaveBeenCalledTimes(3)
+
+    const second = await scanWorkspacePorts(worktrees, urlWatcherStub())
+
+    expect(runPortScanCommandMock).toHaveBeenCalledTimes(4)
+    expect(second.ports).toEqual(first.ports)
+  })
+
+  it('re-probes every port of a pid when any one of them needs metadata', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
+    let secondSocket = 'd0xbbbb'
+    let cwd = '/repo'
+    runPortScanCommandMock.mockImplementation(async (command: string, args: string[]) => {
+      if (command === 'lsof' && args.includes('-iTCP')) {
+        return {
+          stdout: [
+            'p123',
+            'cnode',
+            'f10',
+            'd0xaaaa',
+            'n127.0.0.1:5173',
+            'f11',
+            secondSocket,
+            'n127.0.0.1:5174'
+          ].join('\n'),
+          spawnMs: 5
+        }
+      }
+      if (command === 'lsof') {
+        return { stdout: ['p123', `n${cwd}`].join('\n'), spawnMs: 5 }
+      }
+      return { stdout: `123 node ${cwd}/server.js`, spawnMs: 5 }
+    })
+
+    await scanWorkspacePorts(worktrees, urlWatcherStub())
+    expect(runPortScanCommandMock).toHaveBeenCalledTimes(3)
+
+    // One replaced socket invalidates every cached row for the PID; mixed cwd evidence would split ownership.
+    secondSocket = 'd0xcccc'
+    cwd = '/elsewhere'
+    const scan = await scanWorkspacePorts(worktrees, urlWatcherStub())
+
+    expect(runPortScanCommandMock).toHaveBeenCalledTimes(6)
+    expect(new Set(scan.ports.map((entry) => entry.kind)).size).toBe(1)
+  })
+
+  it('always probes metadata for a requireMetadata scan, even when the cache is warm', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
+    runPortScanCommandMock.mockImplementation(async (command: string, args: string[]) => {
+      if (command === 'lsof' && args.includes('-iTCP')) {
+        return { stdout: LSOF_LISTEN_OUTPUT, spawnMs: 5 }
+      }
+      if (command === 'lsof') {
+        return { stdout: ['p123', 'n/repo'].join('\n'), spawnMs: 5 }
+      }
+      return { stdout: '123 node /repo/server.js', spawnMs: 5 }
+    })
+
+    await scanWorkspacePorts(worktrees, urlWatcherStub())
+    expect(runPortScanCommandMock).toHaveBeenCalledTimes(3)
+    await scanWorkspacePorts(worktrees, urlWatcherStub())
+    expect(runPortScanCommandMock).toHaveBeenCalledTimes(4)
+
+    // SIGTERM authorization cannot trust remembered cwd.
+    await scanWorkspacePorts(worktrees, urlWatcherStub(), { requireMetadata: true })
+
+    expect(runPortScanCommandMock).toHaveBeenCalledTimes(7)
+  })
+
+  it('re-probes when a recycled pid is running a different process', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
+    let processName = 'node'
+    runPortScanCommandMock.mockImplementation(async (command: string, args: string[]) => {
+      if (command === 'lsof' && args.includes('-iTCP')) {
+        return { stdout: `p123\nc${processName}\nn127.0.0.1:5173`, spawnMs: 5 }
+      }
+      if (command === 'lsof') {
+        return { stdout: ['p123', 'n/repo'].join('\n'), spawnMs: 5 }
+      }
+      return { stdout: `123 ${processName} /repo/server.js`, spawnMs: 5 }
+    })
+
+    await scanWorkspacePorts(worktrees, urlWatcherStub())
+    expect(runPortScanCommandMock).toHaveBeenCalledTimes(3)
+
+    processName = 'python3'
+    await scanWorkspacePorts(worktrees, urlWatcherStub())
+
+    expect(runPortScanCommandMock).toHaveBeenCalledTimes(6)
+  })
+
+  it('re-probes when the same pid and name listen through a different socket', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
+    let socketId = '0x1'
+    runPortScanCommandMock.mockImplementation(async (command: string, args: string[]) => {
+      if (command === 'lsof' && args.includes('-iTCP')) {
+        return { stdout: `p123\ncnode\nf18\nd${socketId}\nn127.0.0.1:5173`, spawnMs: 5 }
+      }
+      if (command === 'lsof') {
+        return { stdout: ['p123', 'n/repo'].join('\n'), spawnMs: 5 }
+      }
+      return { stdout: '123 node /repo/server.js', spawnMs: 5 }
+    })
+
+    await scanWorkspacePorts(worktrees, urlWatcherStub())
+    await scanWorkspacePorts(worktrees, urlWatcherStub())
+    expect(runPortScanCommandMock).toHaveBeenCalledTimes(4)
+
+    // A changed kernel socket detects process restart despite matching PID/name/address.
+    socketId = '0x2'
+    await scanWorkspacePorts(worktrees, urlWatcherStub())
+
+    expect(runPortScanCommandMock).toHaveBeenCalledTimes(7)
+  })
+
+  it('re-probes a remembered listener every tenth scan so a changed cwd cannot stay stale', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
+    let cwd = '/repo'
+    runPortScanCommandMock.mockImplementation(async (command: string, args: string[]) => {
+      if (command === 'lsof' && args.includes('-iTCP')) {
+        return { stdout: LSOF_LISTEN_OUTPUT, spawnMs: 5 }
+      }
+      if (command === 'lsof') {
+        return { stdout: ['p123', `n${cwd}`].join('\n'), spawnMs: 5 }
+      }
+      return { stdout: '123 node server.js', spawnMs: 5 }
+    })
+
+    await scanWorkspacePorts(worktrees, urlWatcherStub())
+    cwd = '/repo/worktrees/feature'
+    for (let scan = 2; scan <= 10; scan += 1) {
+      const cached = await scanWorkspacePorts(worktrees, urlWatcherStub())
+      expect(cached.ports[0]).toMatchObject({ owner: { worktreeId: 'repo::/repo' } })
+    }
+    expect(runPortScanCommandMock).toHaveBeenCalledTimes(12)
+
+    const reprobed = await scanWorkspacePorts(worktrees, urlWatcherStub())
+
+    expect(runPortScanCommandMock).toHaveBeenCalledTimes(15)
+    expect(reprobed.ports[0]).toMatchObject({
+      owner: { worktreeId: 'repo::/repo/worktrees/feature' }
+    })
+  })
+
+  // Skipped metadata cycles must retain attribution instead of moving workspace ports into External (#11161).
   it('carries the previous cycle attribution through a skipped scan', async () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
     let listenSpawnMs = 5
@@ -438,7 +666,6 @@ describe('scanWorkspacePorts with delayed process creation', () => {
   })
 })
 
-/** Darwin scan where every spawn stalls past the metadata-skip threshold. */
 function mockStalledDarwinScan(): void {
   runPortScanCommandMock.mockImplementation(async (command: string, args: string[]) => {
     if (command === 'lsof' && args.includes('-iTCP')) {

@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { installNetRequestFetchAdapter } from './updater-net-request.fixture'
 import { publishingIncident } from './updater-prerelease-feed-reproduction.fixture'
+import { loadUpdaterModule, warmUpdaterModule } from './updater-test-module-loader'
 
-const { netFetchMock } = vi.hoisted(() => ({ netFetchMock: vi.fn() }))
+const { netFetchMock, netRequestMock } = vi.hoisted(() => ({
+  netFetchMock: vi.fn(),
+  netRequestMock: vi.fn()
+}))
 
-const { appMock, browserWindowMock, nativeUpdaterMock, autoUpdaterMock, isMock, killAllPtyMock } =
+const { appMock, browserWindowMock, nativeUpdaterMock, autoUpdaterMock, killAllPtyMock } =
   vi.hoisted(() => {
     const appEventHandlers = new Map<string, ((...args: unknown[]) => void)[]>()
     const eventHandlers = new Map<string, ((...args: unknown[]) => void)[]>()
@@ -11,6 +16,13 @@ const { appMock, browserWindowMock, nativeUpdaterMock, autoUpdaterMock, isMock, 
     const appOn = vi.fn((event: string, handler: (...args: unknown[]) => void) => {
       const handlers = appEventHandlers.get(event) ?? []
       handlers.push(handler)
+      appEventHandlers.set(event, handlers)
+      return appMock
+    })
+
+    const appPrependListener = vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+      const handlers = appEventHandlers.get(event) ?? []
+      handlers.unshift(handler)
       appEventHandlers.set(event, handlers)
       return appMock
     })
@@ -31,6 +43,7 @@ const { appMock, browserWindowMock, nativeUpdaterMock, autoUpdaterMock, isMock, 
     const reset = () => {
       appEventHandlers.clear()
       appOn.mockClear()
+      appPrependListener.mockClear()
       eventHandlers.clear()
       on.mockClear()
       autoUpdaterMock.checkForUpdates.mockReset()
@@ -56,6 +69,7 @@ const { appMock, browserWindowMock, nativeUpdaterMock, autoUpdaterMock, isMock, 
         isPackaged: true,
         getVersion: vi.fn(() => '1.0.51'),
         on: appOn,
+        prependListener: appPrependListener,
         quit: vi.fn()
       },
       browserWindowMock: {
@@ -65,7 +79,7 @@ const { appMock, browserWindowMock, nativeUpdaterMock, autoUpdaterMock, isMock, 
         on: vi.fn()
       },
       autoUpdaterMock,
-      isMock: { dev: false },
+
       killAllPtyMock: vi.fn()
     }
   })
@@ -75,7 +89,7 @@ vi.mock('electron', () => ({
   BrowserWindow: browserWindowMock,
   autoUpdater: nativeUpdaterMock,
   powerMonitor: { on: vi.fn() },
-  net: { fetch: netFetchMock }
+  net: { fetch: netFetchMock, request: netRequestMock }
 }))
 
 vi.mock('electron-updater', () => ({
@@ -86,13 +100,7 @@ vi.mock('./electron-updater-loader', () => ({
   loadElectronAutoUpdater: () => autoUpdaterMock
 }))
 
-vi.mock('@electron-toolkit/utils', () => ({
-  is: isMock
-}))
-
-vi.mock('./ipc/pty', () => ({
-  killAllPty: killAllPtyMock
-}))
+vi.mock('./ipc/pty/kill-all', () => ({ killAllPty: killAllPtyMock }))
 
 vi.mock('./updater-nudge', () => ({
   fetchNudge: vi.fn().mockResolvedValue(null),
@@ -153,6 +161,8 @@ function makeBenignCheckFailure(message: string): void {
   })
 }
 
+warmUpdaterModule()
+
 describe('updater check failure handling', () => {
   beforeEach(() => {
     vi.resetModules()
@@ -164,7 +174,7 @@ describe('updater check failure handling', () => {
     appMock.getVersion.mockReturnValue('1.0.51')
     appMock.quit.mockReset()
     appMock.isPackaged = true
-    isMock.dev = false
+
     killAllPtyMock.mockReset()
     vi.unstubAllGlobals()
     vi.useRealTimers()
@@ -173,6 +183,8 @@ describe('updater check failure handling', () => {
       status: 200,
       text: () => Promise.resolve('<feed></feed>')
     })
+    netRequestMock.mockReset()
+    installNetRequestFetchAdapter(netRequestMock, netFetchMock)
   })
 
   it('surfaces GitHub release-transition failures with calmer copy and no short retry', async () => {
@@ -182,7 +194,7 @@ describe('updater check failure handling', () => {
     const sendMock = vi.fn()
     const mainWindow = { webContents: { send: sendMock } }
 
-    const { setupAutoUpdater, checkForUpdatesFromMenu } = await import('./updater')
+    const { setupAutoUpdater, checkForUpdatesFromMenu } = await loadUpdaterModule()
 
     setupAutoUpdater(mainWindow as never, { getLastUpdateCheckAt: () => Date.now() })
     checkForUpdatesFromMenu()
@@ -216,7 +228,7 @@ describe('updater check failure handling', () => {
     const sendMock = vi.fn()
     const mainWindow = { webContents: { send: sendMock } }
 
-    const { setupAutoUpdater, checkForUpdatesFromMenu } = await import('./updater')
+    const { setupAutoUpdater, checkForUpdatesFromMenu } = await loadUpdaterModule()
 
     setupAutoUpdater(mainWindow as never, { getLastUpdateCheckAt: () => Date.now() })
     checkForUpdatesFromMenu()
@@ -258,7 +270,7 @@ describe('updater check failure handling', () => {
       const warnMock = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
       const sendMock = vi.fn()
       const mainWindow = { webContents: { send: sendMock } }
-      const { setupAutoUpdater, checkForUpdatesFromMenu } = await import('./updater')
+      const { setupAutoUpdater, checkForUpdatesFromMenu } = await loadUpdaterModule()
 
       setupAutoUpdater(mainWindow as never, { getLastUpdateCheckAt: () => Date.now() })
       checkForUpdatesFromMenu()
@@ -284,7 +296,7 @@ describe('updater check failure handling', () => {
     const sendMock = vi.fn()
     const mainWindow = { webContents: { send: sendMock } }
 
-    const { setupAutoUpdater, checkForUpdates } = await import('./updater')
+    const { setupAutoUpdater, checkForUpdates } = await loadUpdaterModule()
 
     setupAutoUpdater(mainWindow as never, { getLastUpdateCheckAt: () => Date.now() })
     checkForUpdates()
@@ -316,7 +328,7 @@ describe('updater check failure handling', () => {
 
     const sendMock = vi.fn()
     const mainWindow = { webContents: { send: sendMock } }
-    const { setupAutoUpdater, checkForUpdates, getUpdateStatus } = await import('./updater')
+    const { setupAutoUpdater, checkForUpdates, getUpdateStatus } = await loadUpdaterModule()
 
     setupAutoUpdater(mainWindow as never, { getLastUpdateCheckAt: () => Date.now() })
     checkForUpdates()
@@ -342,30 +354,26 @@ describe('updater check failure handling', () => {
     const sendMock = vi.fn()
     const mainWindow = { webContents: { send: sendMock } }
 
-    const { setupAutoUpdater, checkForUpdates } = await import('./updater')
+    const { setupAutoUpdater, checkForUpdates } = await loadUpdaterModule()
 
     setupAutoUpdater(mainWindow as never, { getLastUpdateCheckAt: () => Date.now() })
     checkForUpdates()
     await vi.advanceTimersByTimeAsync(0)
     expect(autoUpdaterMock.checkForUpdates).toHaveBeenCalledTimes(1)
 
-    // First retry keeps the fast 1h cadence for transient release-readiness failures.
     await vi.advanceTimersByTimeAsync(ONE_HOUR_MS)
     expect(autoUpdaterMock.checkForUpdates).toHaveBeenCalledTimes(2)
 
-    // Second retry doubles to 2h: nothing at +1h, fires by +2h.
     await vi.advanceTimersByTimeAsync(ONE_HOUR_MS)
     expect(autoUpdaterMock.checkForUpdates).toHaveBeenCalledTimes(2)
     await vi.advanceTimersByTimeAsync(ONE_HOUR_MS)
     expect(autoUpdaterMock.checkForUpdates).toHaveBeenCalledTimes(3)
 
-    // Third retry doubles to 4h.
     await vi.advanceTimersByTimeAsync(2 * ONE_HOUR_MS)
     expect(autoUpdaterMock.checkForUpdates).toHaveBeenCalledTimes(3)
     await vi.advanceTimersByTimeAsync(2 * ONE_HOUR_MS)
     expect(autoUpdaterMock.checkForUpdates).toHaveBeenCalledTimes(4)
 
-    // A completed check resets the backoff to the fast retry.
     autoUpdaterMock.checkForUpdates.mockImplementation(() => {
       autoUpdaterMock.emit('checking-for-update')
       queueMicrotask(() => {

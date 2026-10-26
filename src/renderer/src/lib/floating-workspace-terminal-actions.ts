@@ -9,6 +9,12 @@ import {
   type TypeCyclableTab
 } from '@/components/terminal/tab-type-cycle'
 import type { AppState } from '@/store/types'
+import {
+  selectEmptyFloatingWorkspacePanelVisible,
+  selectFloatingVisibleTabCount,
+  type EmptyFloatingWorkspacePanelState
+} from '@/store/floating-workspace-panel-selector'
+import { resolveBrowserWorkspaceOwner } from './browser-workspace-source-resolution'
 import { TOGGLE_FLOATING_TERMINAL_EVENT } from './floating-terminal'
 import { focusTerminalTabSurface } from './focus-terminal-tab-surface'
 import { keybindingMatchesAction, type KeybindingOverrides } from '../../../shared/keybindings'
@@ -39,8 +45,6 @@ type FloatingWorkspaceTabSwitchStore = Pick<
 >
 
 const FLOATING_WORKSPACE_PANEL_SELECTOR = '[data-floating-terminal-panel]'
-const EMPTY_FLOATING_WORKSPACE_PANEL_SELECTOR =
-  '[data-floating-terminal-panel][aria-hidden="false"] [data-floating-terminal-empty-state]'
 
 type EmptyFloatingWorkspaceCloseShortcutEvent = Pick<
   KeyboardEvent,
@@ -88,12 +92,11 @@ function getFloatingWorkspaceVisibleTabs(
   )
 }
 
-// Live count of visible floating tabs from store state — lets close handlers re-derive "did this
-// actually empty the panel?" at the moment the close resolves, instead of trusting a frozen
-// pre-close render snapshot that a concurrent create/no-op close can invalidate.
-export function countVisibleFloatingWorkspaceItems(store: FloatingWorkspaceTabSwitchStore): number {
-  const group = getActiveFloatingWorkspaceGroup(store)
-  return group ? getFloatingWorkspaceVisibleTabs(store, group).length : 0
+/** Recount when async close resolves; concurrent creates/no-op closes can invalidate render-time empty-panel predictions. */
+export function countVisibleFloatingWorkspaceItems(
+  store: Parameters<typeof selectFloatingVisibleTabCount>[0]
+): number {
+  return selectFloatingVisibleTabCount(store)
 }
 
 function getFloatingWorkspaceActiveEntry(
@@ -134,26 +137,15 @@ function getFloatingWorkspaceBrowserTab(
   )
 }
 
-// The guest IPC receiver maps a forwarded close's source id back to the live floating browser
-// workspace that owns it, so a stale/reordered/closed id is an idempotent no-op. Main forwards the
-// guest's *page* id (BrowserManager keys guests by browserPageId), while the panel closes by
-// workspace id, so resolve pages → workspace here; a workspace id is accepted too for callers that
-// already speak that id space.
+/** Resolve guest page IDs to live floating workspaces; stale/reordered closes are no-ops. Accept workspace IDs for callers already using that namespace. */
 export function resolveFloatingWorkspaceBrowserWorkspaceId(
   store: Pick<AppState, 'browserTabsByWorktree' | 'browserPagesByWorkspace'>,
   sourceId: string
 ): string | null {
-  const workspaces = store.browserTabsByWorktree[FLOATING_TERMINAL_WORKTREE_ID] ?? []
-  const pagesByWorkspace = store.browserPagesByWorkspace ?? {}
-  for (const workspace of workspaces) {
-    if (workspace.id === sourceId) {
-      return workspace.id
-    }
-    if ((pagesByWorkspace[workspace.id] ?? []).some((page) => page.id === sourceId)) {
-      return workspace.id
-    }
-  }
-  return null
+  return (
+    resolveBrowserWorkspaceOwner(store, sourceId, FLOATING_TERMINAL_WORKTREE_ID)?.workspaceId ??
+    null
+  )
 }
 
 function activateFloatingWorkspaceCyclableTab(
@@ -198,18 +190,6 @@ function getNextFloatingWorkspaceTerminalTab(
   ]
 }
 
-export function isFloatingWorkspacePanelVisible(
-  doc: Pick<Document, 'querySelector'> = document
-): boolean {
-  return Boolean(doc.querySelector('[data-floating-terminal-panel][aria-hidden="false"]'))
-}
-
-export function isEmptyFloatingWorkspacePanelVisible(
-  doc: Pick<Document, 'querySelector'> | null = typeof document === 'undefined' ? null : document
-): boolean {
-  return Boolean(doc?.querySelector(EMPTY_FLOATING_WORKSPACE_PANEL_SELECTOR))
-}
-
 export function isFloatingWorkspacePanelFocused(
   doc: Pick<Document, 'activeElement'> | null = typeof document === 'undefined' ? null : document
 ): boolean {
@@ -217,10 +197,18 @@ export function isFloatingWorkspacePanelFocused(
   return active instanceof HTMLElement && active.closest(FLOATING_WORKSPACE_PANEL_SELECTOR) !== null
 }
 
-// Event-target-aware panel membership (vs isFloatingWorkspacePanelFocused which reads only activeElement).
-// Used for routing ownership when activeElement is transiently body/null during blur/IME churn (F6/F7).
+// Use event-target membership when blur/IME churn leaves activeElement transiently body/null (F6/F7).
 export function isEventTargetInsideFloatingWorkspacePanel(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && target.closest(FLOATING_WORKSPACE_PANEL_SELECTOR) !== null
+}
+
+export function resolveKeyboardWorkspaceId(
+  target: EventTarget | null,
+  activeWorktreeId: string | null
+): string | null {
+  return isEventTargetInsideFloatingWorkspacePanel(target)
+    ? FLOATING_TERMINAL_WORKTREE_ID
+    : activeWorktreeId
 }
 
 export function isFloatingWorkspaceTerminalInputTarget(target: EventTarget | null): boolean {
@@ -247,13 +235,14 @@ export function shouldMinimizeFloatingWorkspacePanelOnCloseShortcut({
 }
 
 export function handleEmptyFloatingWorkspacePanelCloseShortcut(
+  state: EmptyFloatingWorkspacePanelState,
   event: EmptyFloatingWorkspaceCloseShortcutEvent,
   platform: NodeJS.Platform,
   keybindings?: KeybindingOverrides
 ): boolean {
   if (
     event.repeat ||
-    !isEmptyFloatingWorkspacePanelVisible() ||
+    !selectEmptyFloatingWorkspacePanelVisible(state) ||
     !keybindingMatchesAction('tab.close', event, platform, keybindings, { context: 'app' })
   ) {
     return false

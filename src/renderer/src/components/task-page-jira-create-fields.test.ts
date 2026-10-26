@@ -3,12 +3,17 @@ import { describe, expect, it } from 'vitest'
 import {
   buildJiraCreateCustomFields,
   buildJiraCreateFieldValue,
+  buildJiraCreateSubmission,
   findJiraCreateAllowedValue,
   getJiraCreateAllowedValueLabel,
   getJiraCreateOptionPayload,
+  getJiraUserCreateFieldKeys,
+  hasJiraAssigneeCreateField,
+  isJiraScalarUserCreateField,
+  isJiraUserCreateField,
   isVisibleJiraCreateField
 } from './task-page-jira-create-fields'
-import type { JiraCreateField } from '../../../shared/jira-types'
+import type { JiraCreateField } from '../../../shared/jira/jira-types'
 
 function field(overrides: Partial<JiraCreateField> = {}): JiraCreateField {
   return { key: 'customfield_1', name: 'Custom', required: true, ...overrides }
@@ -22,8 +27,7 @@ describe('isVisibleJiraCreateField', () => {
     { key: 'issuetype', required: true, expected: false },
     { key: 'summary', required: true, expected: false },
     { key: 'description', required: true, expected: false },
-    // characterization: current behavior — the system-field filter is exact-match
-    // and case-sensitive, so a differently-cased key stays visible.
+    { key: 'assignee', required: true, expected: false },
     { key: 'Summary', required: true, expected: true }
   ]
 
@@ -32,6 +36,54 @@ describe('isVisibleJiraCreateField', () => {
       expect(isVisibleJiraCreateField(field({ key, required }))).toBe(expected)
     })
   }
+})
+
+describe('isJiraUserCreateField', () => {
+  it('matches user pickers, which carry no allowedValues to detect them by', () => {
+    expect(isJiraUserCreateField(field({ key: 'reporter', schema: { type: 'user' } }))).toBe(true)
+    expect(isJiraUserCreateField(field({ schema: { type: 'array', items: 'user' } }))).toBe(true)
+  })
+
+  it('ignores non-user fields', () => {
+    expect(isJiraUserCreateField(field({ schema: { type: 'string' } }))).toBe(false)
+    expect(isJiraUserCreateField(field({ schema: { type: 'array', items: 'option' } }))).toBe(false)
+    expect(isJiraUserCreateField(field())).toBe(false)
+  })
+})
+
+describe('isJiraScalarUserCreateField', () => {
+  it('matches single-user fields the picker can hold', () => {
+    expect(isJiraScalarUserCreateField(field({ key: 'reporter', schema: { type: 'user' } }))).toBe(
+      true
+    )
+  })
+
+  it('rejects array-of-user, which the single-value picker would collapse to one member', () => {
+    expect(isJiraScalarUserCreateField(field({ schema: { type: 'array', items: 'user' } }))).toBe(
+      false
+    )
+  })
+
+  it('ignores non-user fields', () => {
+    expect(isJiraScalarUserCreateField(field({ schema: { type: 'string' } }))).toBe(false)
+    expect(isJiraScalarUserCreateField(field())).toBe(false)
+  })
+})
+
+describe('getJiraUserCreateFieldKeys', () => {
+  it('collects only the user-typed keys for the host to shape', () => {
+    expect(
+      getJiraUserCreateFieldKeys([
+        field({ key: 'reporter', schema: { type: 'user' } }),
+        field({ key: 'customfield_1', schema: { type: 'string' } }),
+        field({ key: 'customfield_2', schema: { type: 'array', items: 'user' } })
+      ])
+    ).toEqual(['reporter', 'customfield_2'])
+  })
+
+  it('returns an empty list when nothing is user-typed', () => {
+    expect(getJiraUserCreateFieldKeys([field()])).toEqual([])
+  })
 })
 
 describe('getJiraCreateAllowedValueLabel', () => {
@@ -81,8 +133,6 @@ describe('getJiraCreateOptionPayload', () => {
   })
 
   it('skips empty-string members', () => {
-    // characterization: current behavior — the checks are truthiness-based, so an
-    // empty id falls through to the next candidate.
     expect(getJiraCreateOptionPayload({ id: '', value: 'v' }, 'fb')).toEqual({ value: 'v' })
   })
 })
@@ -123,8 +173,6 @@ describe('buildJiraCreateFieldValue', () => {
     const numberField = field({ schema: { type: 'number' } })
     expect(buildJiraCreateFieldValue(numberField, ' 42 ')).toBe(42)
     expect(buildJiraCreateFieldValue(numberField, 'abc')).toBe('abc')
-    // characterization: current behavior — Infinity is not finite, so the trimmed
-    // text is kept instead of the coerced number.
     expect(buildJiraCreateFieldValue(numberField, 'Infinity')).toBe('Infinity')
   })
 
@@ -146,8 +194,6 @@ describe('buildJiraCreateFieldValue', () => {
   })
 
   it('prefers allowed values over the number branch', () => {
-    // characterization: current behavior — the allowedValues branch runs before the
-    // number branch, so the draft stays a string even on a number-typed field.
     const numeric = field({ schema: { type: 'number' }, allowedValues: [{ id: 'id-1' }] })
     expect(buildJiraCreateFieldValue(numeric, '7')).toBe('7')
   })
@@ -169,5 +215,56 @@ describe('buildJiraCreateCustomFields', () => {
 
   it('treats a missing draft entry as blank', () => {
     expect(buildJiraCreateCustomFields([field({ key: 'a' })], { other: 'x' })).toBeUndefined()
+  })
+})
+
+describe('hasJiraAssigneeCreateField', () => {
+  it('detects whether the create screen accepts an assignee', () => {
+    expect(hasJiraAssigneeCreateField([field({ key: 'assignee', required: false })])).toBe(true)
+    expect(hasJiraAssigneeCreateField([field({ key: 'reporter' })])).toBe(false)
+    expect(hasJiraAssigneeCreateField([])).toBe(false)
+  })
+})
+
+describe('buildJiraCreateSubmission', () => {
+  const userField = field({ key: 'customfield_9', schema: { type: 'user' } })
+
+  it('omits assignee and userFieldKeys for the Automatic default', () => {
+    expect(buildJiraCreateSubmission([field({ key: 'a' })], { a: 'one' }, null)).toEqual({
+      customFields: { a: 'one' },
+      userFieldKeys: undefined
+    })
+    expect(buildJiraCreateSubmission([], {}, undefined)).toEqual({
+      customFields: undefined,
+      userFieldKeys: undefined
+    })
+  })
+
+  it('adds the picked assignee to customFields and names it as a user field', () => {
+    expect(buildJiraCreateSubmission([], {}, 'acc-1')).toEqual({
+      customFields: { assignee: 'acc-1' },
+      userFieldKeys: ['assignee']
+    })
+  })
+
+  it('names only the user-typed fields that carry a value', () => {
+    expect(
+      buildJiraCreateSubmission(
+        [userField, field({ key: 'customfield_8', schema: { type: 'user' } })],
+        { customfield_9: 'acc-9' },
+        'acc-1'
+      )
+    ).toEqual({
+      customFields: { customfield_9: 'acc-9', assignee: 'acc-1' },
+      userFieldKeys: ['customfield_9', 'assignee']
+    })
+  })
+
+  it('keeps userFieldKeys absent when user fields exist but are blank', () => {
+    // Even empty user-field key lists must avoid requiring capabilities absent from older hosts.
+    expect(buildJiraCreateSubmission([userField], {}, null)).toEqual({
+      customFields: undefined,
+      userFieldKeys: undefined
+    })
   })
 })

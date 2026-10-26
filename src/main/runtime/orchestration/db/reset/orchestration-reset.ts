@@ -1,8 +1,6 @@
 import { LEGACY_RUN_ID } from '../contract-constants'
 import type { OrchestrationDb } from '../orchestration-db'
 
-// ── Lifecycle ──
-
 export function runResetTransaction(this: OrchestrationDb, statements: string): void {
   this.db.exec('BEGIN IMMEDIATE')
   try {
@@ -12,14 +10,14 @@ export function runResetTransaction(this: OrchestrationDb, statements: string): 
     try {
       this.db.exec('ROLLBACK')
     } catch {
-      // Why: a failed COMMIT may already have rolled back; that ROLLBACK error must not mask the real failure.
+      // A failed commit may already roll back; preserve the original error if rollback also fails.
     }
     throw error
   }
 }
 
 export function resetAll(this: OrchestrationDb): void {
-  // Why: retain mutation receipts so a lost reset response cannot replay as a new mutation.
+  // Keep receipts so a lost reset reply cannot replay the mutation.
   this.runResetTransaction(`
     DELETE FROM coordinator_runs;
     DELETE FROM decision_gates;
@@ -35,6 +33,8 @@ export function resetAll(this: OrchestrationDb): void {
     DELETE FROM federated_dispatches;
     DELETE FROM worker_terminal_archives;
     DELETE FROM worker_terminal_resources;
+    DELETE FROM attempt_observation_facts;
+    DELETE FROM structured_pointer_operations;
     DELETE FROM worker_dispatches;
     DELETE FROM dispatch_contexts;
     DELETE FROM tasks;
@@ -48,8 +48,7 @@ export function resetAll(this: OrchestrationDb): void {
 }
 
 export function resetTasks(this: OrchestrationDb): void {
-  // Why: messages survive this scope, so question threads are closed rather than deleted — an orphaned
-  // question message would otherwise answer as a generic reply while legacy acknowledgment rejects it.
+  // Messages survive; close threads so orphaned questions cannot masquerade as generic replies.
   this.runResetTransaction(`
     DELETE FROM coordinator_runs;
     DELETE FROM decision_gates;
@@ -66,6 +65,8 @@ export function resetTasks(this: OrchestrationDb): void {
     DELETE FROM federated_dispatches;
     DELETE FROM worker_terminal_archives;
     DELETE FROM worker_terminal_resources;
+    DELETE FROM attempt_observation_facts;
+    DELETE FROM structured_pointer_operations;
     DELETE FROM worker_dispatches;
     DELETE FROM dispatch_contexts;
     DELETE FROM tasks;
@@ -74,12 +75,13 @@ export function resetTasks(this: OrchestrationDb): void {
 }
 
 export function resetMessages(this: OrchestrationDb): void {
-  // Why: federation_relay_items is deliberately kept — relay rows carry contiguous cross-server cursors, not just inbox history.
+  // Keep relay rows for contiguous cross-server cursors; drop pointer operations whose deleted message batch no longer exists.
   this.runResetTransaction(`
     DELETE FROM legacy_mail_receipts;
     DELETE FROM question_threads;
     DELETE FROM deliveries;
     DELETE FROM messages;
+    DELETE FROM structured_pointer_operations;
   `)
 }
 

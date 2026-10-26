@@ -15,21 +15,23 @@ export {
   _resetKnownHostsCache,
   _resetProjectRefCache,
   getGlabKnownHosts,
-  getIssueProjectRef,
   getProjectRef,
   getProjectRefForRemote,
+  glabHostEnvOptions,
   glabHostnameArgs,
   glabRepoExecOptions,
   parseGlabAuthStatusHosts,
-  parseGitLabProjectRef,
-  resolveIssueSource
+  parseGitLabProjectRef
 } from './gitlab-project-ref-resolution'
-export type {
-  LocalGitExecOptions,
-  ProjectRef,
-  ResolvedIssueSource
-} from './gitlab-project-ref-resolution'
-export { parseGlabApiResponse, parseGlabJsonList, type GlabApiResponse } from './glab-api-response'
+export type { LocalGitExecOptions, ProjectRef } from './gitlab-project-ref-resolution'
+export { getIssueProjectRef, resolveIssueSource } from './gitlab-issue-source-resolution'
+export type { ResolvedIssueSource } from './gitlab-issue-source-resolution'
+export {
+  parseGlabApiResponse,
+  parseGlabJsonList,
+  parseGlabPaginationHeader,
+  type GlabApiResponse
+} from './glab-api-response'
 
 const MAX_CONCURRENT = 4
 export const GITLAB_ADMISSION_TIMEOUT_MS = 30_000
@@ -86,7 +88,7 @@ export function release(): void {
 
 export async function glabApiWithHeaders(
   args: string[],
-  options?: { cwd?: string }
+  options?: Parameters<typeof glabExecFileAsync>[1]
 ): Promise<GlabApiResponse> {
   const { stdout } = await glabExecFileAsync(['api', '-i', ...args], options)
   return parseGlabApiResponse(stdout)

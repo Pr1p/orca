@@ -1,6 +1,7 @@
 import type { WebContents } from 'electron'
 
-function isRendererDocumentNavigation(currentUrl: string, nextUrl: string): boolean {
+/** Preload privilege boundary: exact file host/path (query/hash may vary), or same HTTP(S) origin. Broadening this grants foreign pages the Orca bridge. */
+export function isRendererDocumentNavigation(currentUrl: string, nextUrl: string): boolean {
   try {
     const current = new URL(currentUrl)
     const next = new URL(nextUrl)
@@ -13,6 +14,7 @@ function isRendererDocumentNavigation(currentUrl: string, nextUrl: string): bool
     }
     return (
       (current.protocol === 'http:' || current.protocol === 'https:') &&
+      (next.protocol === 'http:' || next.protocol === 'https:') &&
       next.origin === current.origin
     )
   } catch {
@@ -41,7 +43,7 @@ export function registerRendererDocumentNavigation(
     cancelReload = null
     cancel?.()
   }
-  // Why: did-start-loading also fires for blocked external links whose renderer document survives.
+  // Blocked external links also emit did-start-loading while the privileged document survives.
   webContents.on('did-start-navigation', (_event, url, isSameDocument, isMainFrame) => {
     if (isMainFrame && !isSameDocument && isRendererDocumentNavigation(webContents.getURL(), url)) {
       if (!fenceActive) {

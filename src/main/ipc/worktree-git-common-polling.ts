@@ -1,5 +1,6 @@
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
+import { forEachWithConcurrency } from '../../shared/map-with-concurrency'
 import { PRIMARY_CHECKOUT_METADATA_FILES } from './worktree-git-common-metadata-files'
 import {
   diffGitCommon,
@@ -18,23 +19,22 @@ import {
   type GitCommonEntrySnapshot
 } from './worktree-git-common-entry-snapshot'
 
-// Why: the entry-dir signature gate can miss same-granule index rewrites on
-// coarse-mtime filesystems; a periodic ungated re-stat bounds that miss the
-// same way the base poller's backstop rescan does.
+// Ungated backstops bound missed same-granule index writes on coarse-timestamp filesystems.
 const INDEX_BACKSTOP_TICKS = 15
+
+// Match existing probe pools to bound fleet stat fanout without flooding libuv (#17828).
+const GIT_COMMON_SNAPSHOT_CONCURRENCY = 8
 
 async function snapshotStatusRefSignatures(
   paths: ReadonlySet<string>
 ): Promise<Map<string, string>> {
   const signatures = new Map<string, string>()
-  await Promise.all(
-    [...paths].map(async (path) => {
-      const signature = await gitCommonFileSignature(path)
-      if (signature !== null) {
-        signatures.set(path, signature)
-      }
-    })
-  )
+  await forEachWithConcurrency([...paths], GIT_COMMON_SNAPSHOT_CONCURRENCY, async (path) => {
+    const signature = await gitCommonFileSignature(path)
+    if (signature !== null) {
+      signatures.set(path, signature)
+    }
+  })
   return signatures
 }
 
@@ -58,7 +58,9 @@ async function snapshotGitCommon(
   previous?: GitCommonSnapshot,
   includePrimary = true,
   forceFullScan = false,
-  statusRefPaths = new Set<string>()
+  statusRefPaths = new Set<string>(),
+  statInPlaceLeaves = false,
+  onDirGateMiss?: () => void
 ): Promise<GitCommonSnapshot> {
   const worktreesDir = join(commonDirPath, 'worktrees')
   const [worktreesDirSignature, primarySignatures, statusRefSignatures] = await Promise.all([
@@ -66,11 +68,7 @@ async function snapshotGitCommon(
     includePrimary ? snapshotPrimaryCheckoutSignatures(commonDirPath) : new Map<string, string>(),
     snapshotStatusRefSignatures(statusRefPaths)
   ])
-  // Why: enumerate the worktrees dir EVERY tick rather than gating the readdir on its stat signature.
-  // A single readdir of a small dir is negligible next to the per-entry structural stats that already
-  // run each tick, and the signature gate could miss a same-granule add+remove on a coarse-mtime/FAT
-  // filesystem (its size/mtime/ino/ctime all collide), leaving a linked worktree add/remove undetected
-  // until the ~30s index backstop (#9882 review). The listing is the authoritative add/remove signal.
+  // List every tick: coarse directory signatures can miss add/remove changes before the slow backstop.
   let entryPaths: string[]
   try {
     const entries = await readdir(worktreesDir, { withFileTypes: true })
@@ -79,27 +77,28 @@ async function snapshotGitCommon(
       .map((entry) => join(worktreesDir, entry.name))
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      // Dir genuinely absent (no linked worktrees, or all removed) → authoritative empty listing.
       entryPaths = []
     } else {
-      // Why: a TRANSIENT readdir failure (EIO/ESTALE/EMFILE, network/SSH hiccup) must not masquerade as
-      // "every worktree removed" — that would emit false delete events (and false creates next tick).
-      // Reuse the known entries so per-entry stats still run; a real removal surfaces as that entry's own
-      // stat miss (handled in snapshotGitCommonEntry), and the next successful readdir catches any add.
+      // Transient readdir failures are not deletion proof; retain entries and let their own stats detect removals.
       entryPaths = previous ? [...previous.entries.keys()] : []
     }
   }
 
   const entries = new Map<string, GitCommonEntrySnapshot>()
-  await Promise.all(
-    entryPaths.map(async (entryPath) => {
-      const previousEntry = previous?.entries.get(entryPath)
-      entries.set(entryPath, await snapshotGitCommonEntry(entryPath, previousEntry, forceFullScan))
-    })
-  )
-  // Why: the expensive per-entry `index` read stays gated on each entry's own dir signature; onFullScan
-  // now reflects an ungated index-metadata backstop fan-out (forceFullScan) — the real periodic cost —
-  // rather than the always-run worktrees-dir readdir.
+  await forEachWithConcurrency(entryPaths, GIT_COMMON_SNAPSHOT_CONCURRENCY, async (entryPath) => {
+    const previousEntry = previous?.entries.get(entryPath)
+    entries.set(
+      entryPath,
+      await snapshotGitCommonEntry(
+        entryPath,
+        previousEntry,
+        forceFullScan,
+        statInPlaceLeaves,
+        onDirGateMiss
+      )
+    )
+  })
+  // Full-scan metrics count ungated metadata sweeps, not the cheap per-tick directory listing.
   return {
     worktreesDirSignature,
     worktreesDirIdentity: gitCommonDirectoryIdentity(worktreesDirSignature),
@@ -112,9 +111,12 @@ async function snapshotGitCommon(
 }
 
 export type GitCommonPollingOptions = {
-  /** Reconciliation backstop: never trust the per-entry gate, re-stat every tick. */
-  forceFullScanEveryTick?: boolean
+  /** Reconciliation directly probes in-place leaves each tick and forces a full sweep every N ticks. */
+  reconciliationFullScanEveryTicks?: number
 }
+
+// Require misses on separate ticks before distrusting the directory gate for the whole catalog.
+const DIR_GATE_MISS_TICKS_TO_DISTRUST = 2
 
 export async function startGitCommonPolling(
   commonDirPath: string,
@@ -129,6 +131,11 @@ export async function startGitCommonPolling(
   let disposed = false
   let ticking = false
   let tickCount = 0
+  const reconciliationFullScanEveryTicks = options.reconciliationFullScanEveryTicks
+  const isReconciliation = reconciliationFullScanEveryTicks !== undefined
+  // Filesystems can ignore child renames in directory metadata; detected misses force ungated sweeps.
+  let entryDirGateTrusted = true
+  let dirGateMissTicks = 0
   let snapshot = await snapshotGitCommon(
     commonDirPath,
     undefined,
@@ -152,24 +159,33 @@ export async function startGitCommonPolling(
       return
     }
     ticking = true
-    // Why: measure from tick start so cadence is start-to-start, not gap-after-completion (which would
-    // land each visible refresh a full scan-duration late every tick).
+    // Measure start-to-start cadence so scan duration does not add a full interval of lag.
     const startedAt = Date.now()
     tickCount++
     const shouldForceFullScan =
-      options.forceFullScanEveryTick === true ||
+      (isReconciliation && !entryDirGateTrusted) ||
       forceFullScan ||
-      tickCount % INDEX_BACKSTOP_TICKS === 0
+      tickCount % (reconciliationFullScanEveryTicks ?? INDEX_BACKSTOP_TICKS) === 0
+    let dirGateMissed = false
     try {
       const next = await snapshotGitCommon(
         commonDirPath,
         snapshot,
         includePrimary,
         shouldForceFullScan,
-        new Set(getStatusRefPaths())
+        new Set(getStatusRefPaths()),
+        isReconciliation,
+        isReconciliation
+          ? () => {
+              dirGateMissed = true
+            }
+          : undefined
       )
       if (disposed) {
         return
+      }
+      if (dirGateMissed && ++dirGateMissTicks >= DIR_GATE_MISS_TICKS_TO_DISTRUST) {
+        entryDirGateTrusted = false
       }
       if (next.didFullScan) {
         onFullScan?.()
@@ -185,9 +201,7 @@ export async function startGitCommonPolling(
       ticking = false
     }
     if (!disposed) {
-      // Why: clamp to [0, pollIntervalMs]. Date.now() is not monotonic — a backward wall-clock jump (NTP) would
-      // otherwise make elapsed negative and push the next tick out by the adjustment (suppressing refreshes for
-      // minutes); the upper clamp caps the wait at one interval, the lower clamp keeps a long scan from going negative.
+      // Clamp wall-clock jumps so NTP cannot postpone refreshes beyond one interval.
       const nextDelay = Math.max(
         0,
         Math.min(pollIntervalMs, pollIntervalMs - (Date.now() - startedAt))
@@ -202,8 +216,7 @@ export async function startGitCommonPolling(
       return
     }
     parkedWhileHidden = false
-    // Why: a linked index can change without its parent dir signature moving;
-    // force the leaf read when diffing the retained pre-hide snapshot.
+    // Resume must force index reads because hidden writes can leave directory signatures unchanged.
     void tick(true)
   })
 

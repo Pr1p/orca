@@ -1,7 +1,12 @@
 import type { Store } from '../../../persistence/loading-store/store'
 import type { Repo } from '../../../../shared/repo-types'
 import type { WorktreeMeta } from '../../../../shared/worktree/meta-types'
-import { getProjectHostSetupWorktreeMeta } from '../../../../shared/project-host-setup-projection'
+import { getProjectHostSetupWorktreeMeta } from '../../../../shared/project-host-setup-lookup'
+import {
+  hostWorktreeTargetForRepo,
+  readWorktreeMetaForRepo
+} from '../../../persistence/host-qualified-worktree-meta'
+import { getRepoOwnedWorktreeMeta } from '../../../worktree-metadata-ownership'
 import { randomUUID } from 'node:crypto'
 
 export function getProjectHostSetupMetaUpdates(
@@ -14,7 +19,7 @@ export function getProjectHostSetupMetaUpdates(
     existing?.projectHostSetupId === undefined ||
     existing.projectHostSetupId === ownership.projectHostSetupId
   return {
-    // Why: project IDs can upgrade from legacy repo IDs to provider-backed ones; repair ownership on discovery when the host setup matches.
+    // Repair legacy project identity only when host setup still matches.
     ...(sameSetup && existing?.projectId !== ownership.projectId
       ? { projectId: ownership.projectId }
       : {}),
@@ -25,13 +30,26 @@ export function getProjectHostSetupMetaUpdates(
   }
 }
 
-// Why: disk-discovered worktrees have no WorktreeMeta, so lastActivityAt=0 sinks them to the bottom of "Recent"; also backfill host-setup ownership here.
+// First-discovered worktrees need activity timestamps to avoid sinking to the bottom of Recent.
 export function resolveWorktreeMetaWithDiscoveryBackfill(
   store: Store,
   repo: Repo,
-  worktreeId: string
+  worktreeId: string,
+  allMetaOverride?: Record<string, WorktreeMeta>,
+  repoOwnerCount = store.getRepos().filter((candidate) => candidate.id === repo.id).length
 ): WorktreeMeta {
-  const existing = store.getWorktreeMeta(worktreeId)
+  const target = hostWorktreeTargetForRepo(worktreeId, repo)
+  const allMeta = allMetaOverride ?? store.getAllWorktreeMeta?.()
+  // Use locator-keyed metadata only when no snapshot is available.
+  const legacyMeta = allMeta === undefined ? store.getWorktreeMeta?.(worktreeId) : undefined
+  const existing =
+    readWorktreeMetaForRepo(store, worktreeId, repo) ??
+    getRepoOwnedWorktreeMeta(
+      repo,
+      worktreeId,
+      allMeta ?? (legacyMeta ? { [worktreeId]: legacyMeta } : {}),
+      repoOwnerCount
+    )
   const ownershipUpdates = getProjectHostSetupMetaUpdates(store, repo, existing)
   if (existing) {
     const updates = {
@@ -39,12 +57,12 @@ export function resolveWorktreeMetaWithDiscoveryBackfill(
       ...ownershipUpdates
     }
     if (Object.keys(updates).length > 0) {
-      // Why: pre-lineage profiles already have WorktreeMeta rows; backfill on discovery so upgraded workspaces get lineage and host routing.
-      return store.setWorktreeMeta(worktreeId, updates)
+      // Discovery backfills lineage and routing for profiles whose metadata predates them.
+      return store.setWorktreeMeta(target, updates)
     }
     return existing
   }
-  return store.setWorktreeMeta(worktreeId, {
+  return store.setWorktreeMeta(target, {
     lastActivityAt: Date.now(),
     ...ownershipUpdates
   })

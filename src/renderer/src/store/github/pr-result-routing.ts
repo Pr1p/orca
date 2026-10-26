@@ -1,10 +1,15 @@
 import type { AppState } from '../types'
+import type { RuntimeFocusSettings } from '../../../../shared/github/github-cache-key'
 import type { PRInfo } from '../../../../shared/github/pull-request-types'
 import { hostedReviewInfoFromGitHubPRInfo } from '../../../../shared/hosted-review-github'
 import {
   getHostedReviewCacheKey,
   linkedReviewHintKey
 } from '../slices/hosted-review-cache-identity'
+import {
+  hasNewerHostedReviewCacheEntry,
+  withHostedReviewCacheEntry
+} from '../slices/hosted-review-cache-state'
 import type { GitHubPRFallbackSource } from './cache-model'
 
 export function githubHostedReviewFallbackPRNumber(
@@ -67,25 +72,11 @@ export function linkedReviewHintKeyForNoGitHubPR(
   return entry?.linkedReviewHintKey
 }
 
-export function hasNewerHostedReviewCacheEntry(
-  cache: AppState['hostedReviewCache'],
-  cacheKey: string,
-  requestStartedAt: number,
-  requestStartedEntry: AppState['hostedReviewCache'][string] | undefined
-): boolean {
-  const entry = cache[cacheKey]
-  return (
-    entry !== undefined &&
-    (entry.fetchedAt > requestStartedAt ||
-      (entry.fetchedAt === requestStartedAt && entry !== requestStartedEntry))
-  )
-}
-
 export function syncHostedReviewCacheFromGitHubPRResult(args: {
   cache: AppState['hostedReviewCache']
   repoPath: string
   branch: string
-  settings: AppState['settings']
+  settings: RuntimeFocusSettings
   repoId?: string
   connectionId?: string | null
   executionHostId?: string | null
@@ -155,18 +146,16 @@ export function syncHostedReviewCacheFromGitHubPRResult(args: {
       hostedReviewEntry?.branchLookupGitHubPRNumber === args.pr.number)
       ? args.pr.number
       : undefined
+  // Bound hosted-review keys across host/repo/branch churn like the shared slice.
   return {
-    cache: {
-      ...args.cache,
-      [hostedReviewCacheKey]: {
-        data: args.pr ? hostedReviewInfoFromGitHubPRInfo(args.pr) : null,
-        fetchedAt: args.fetchedAt,
-        linkedReviewHintKey: args.pr
-          ? linkedReviewHintKey({ linkedGitHubPR: args.pr.number })
-          : linkedReviewHintKeyForNoGitHubPR(hostedReviewEntry),
-        ...(branchLookupGitHubPRNumber !== undefined ? { branchLookupGitHubPRNumber } : {})
-      }
-    },
+    cache: withHostedReviewCacheEntry(args.cache, hostedReviewCacheKey, {
+      data: args.pr ? hostedReviewInfoFromGitHubPRInfo(args.pr) : null,
+      fetchedAt: args.fetchedAt,
+      linkedReviewHintKey: args.pr
+        ? linkedReviewHintKey({ linkedGitHubPR: args.pr.number })
+        : linkedReviewHintKeyForNoGitHubPR(hostedReviewEntry),
+      ...(branchLookupGitHubPRNumber !== undefined ? { branchLookupGitHubPRNumber } : {})
+    }),
     accepted: true
   }
 }

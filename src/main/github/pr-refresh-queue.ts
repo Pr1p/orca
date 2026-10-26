@@ -1,3 +1,4 @@
+import { REVIEW_REFRESH_COOLDOWN_MS } from '../../shared/review-refresh-policy'
 import type {
   GitHubPRRefreshAlias,
   GitHubPRRefreshCandidate,
@@ -9,6 +10,8 @@ import {
   freshRetryAt,
   POST_PUSH_DELAY_MS,
   refreshKey,
+  sameAliasRequestIdentity,
+  refreshIntervalForCandidate,
   shouldSkipFresh
 } from './pr-refresh-candidate-policy'
 
@@ -22,6 +25,7 @@ export type PRRefreshQueueEntry = {
   queuedAt: number
   bypassBackgroundBudget?: boolean
   activeDelayNotified?: boolean
+  followUp?: boolean
   windowId?: number
 }
 
@@ -32,9 +36,59 @@ export type PRRefreshEnqueue = {
   coalesced: boolean
 }
 
+type PRRefreshRequestState = { until: number; requestSequence?: number }
+
+/** Retire old-branch aliases when a linked-PR key survives worktree branch changes. */
+function setLiveAlias(
+  aliases: Map<string, GitHubPRRefreshAlias>,
+  alias: GitHubPRRefreshAlias
+): void {
+  if (alias.worktreeId) {
+    for (const [cacheKey, existing] of aliases) {
+      if (cacheKey !== alias.cacheKey && existing.worktreeId === alias.worktreeId) {
+        aliases.delete(cacheKey)
+      }
+    }
+  }
+  aliases.set(alias.cacheKey, alias)
+}
+
+/** Queued aliases are newer than request-time follow-ups; preserve them with their matching candidate. */
+function mergeFollowUpAlias(
+  aliases: Map<string, GitHubPRRefreshAlias>,
+  alias: GitHubPRRefreshAlias
+): GitHubPRRefreshAlias | undefined {
+  if (alias.worktreeId) {
+    for (const existing of aliases.values()) {
+      if (existing.worktreeId === alias.worktreeId) {
+        return existing
+      }
+    }
+  }
+  setLiveAlias(aliases, alias)
+  return undefined
+}
+
+/** Manual refresh writes copied maps back; keep the latest branch per worktree on re-entry too. */
+function dropSupersededWorktreeAliases(aliases: Map<string, GitHubPRRefreshAlias>): void {
+  const liveCacheKeyByWorktree = new Map<string, string>()
+  for (const [cacheKey, alias] of aliases) {
+    if (!alias.worktreeId) {
+      continue
+    }
+    const superseded = liveCacheKeyByWorktree.get(alias.worktreeId)
+    if (superseded !== undefined) {
+      aliases.delete(superseded)
+    }
+    liveCacheKeyByWorktree.set(alias.worktreeId, cacheKey)
+  }
+}
+
 export class PRRefreshQueue {
   private readonly entries = new Map<string, PRRefreshQueueEntry>()
   private order = 0
+  // Completion ownership shares the cooldown map's bound.
+  private readonly backgroundNotBefore = new Map<string, PRRefreshRequestState>()
 
   constructor(private readonly resetRetryState: (key: string) => void) {}
 
@@ -47,6 +101,7 @@ export class PRRefreshQueue {
   }
 
   set(key: string, entry: PRRefreshQueueEntry): void {
+    dropSupersededWorktreeAliases(entry.aliases)
     this.entries.set(key, entry)
   }
 
@@ -67,17 +122,73 @@ export class PRRefreshQueue {
     return this.entries.get(key)?.aliases.size ?? 0
   }
 
+  protectBackgroundUntil(key: string, until: number, requestSequence?: number): void {
+    const owner = requestSequence ?? this.backgroundNotBefore.get(key)?.requestSequence
+    this.backgroundNotBefore.delete(key)
+    this.backgroundNotBefore.set(key, { until, requestSequence: owner })
+    const pending = this.entries.get(key)
+    if (pending && !bypassesFreshnessDelay(pending.reason)) {
+      pending.dueAt = Math.max(pending.dueAt, until)
+    }
+    const oldest = this.backgroundNotBefore.keys().next().value
+    if (this.backgroundNotBefore.size > 1_000 && oldest !== undefined) {
+      this.backgroundNotBefore.delete(oldest)
+      this.resetRetryState(oldest)
+    }
+  }
+
+  noteRequestStarted(key: string, requestSequence: number): void {
+    this.protectBackgroundUntil(key, Date.now() + REVIEW_REFRESH_COOLDOWN_MS, requestSequence)
+  }
+
+  ownsRequest(key: string, requestSequence: number): boolean {
+    return this.backgroundNotBefore.get(key)?.requestSequence === requestSequence
+  }
+
+  retimeVisible(
+    candidateFor: (key: string, candidate: GitHubPRRefreshCandidate) => GitHubPRRefreshCandidate
+  ): void {
+    for (const entry of this.entries.values()) {
+      if (entry.reason !== 'visible' || !entry.followUp || entry.bypassBackgroundBudget) {
+        continue
+      }
+      entry.candidate = candidateFor(entry.key, entry.candidate)
+      entry.dueAt = Math.max(
+        freshRetryAt(entry.candidate) ?? Date.now(),
+        this.backgroundNotBefore.get(entry.key)?.until ?? 0
+      )
+      if (!Number.isFinite(entry.dueAt)) {
+        this.entries.delete(entry.key)
+      }
+    }
+  }
+
   enqueue(
     candidate: GitHubPRRefreshCandidate,
     reason: GitHubPRRefreshReason,
     priority: number,
-    windowId?: number
+    windowId?: number,
+    reexposed = false
   ): PRRefreshEnqueue {
     const alias = aliasFromCandidate(candidate)
     const key = refreshKey(candidate)
     const existing = this.entries.get(key)
     const freshDueAt = shouldSkipFresh(candidate, reason) ? freshRetryAt(candidate) : null
-    const dueAt = freshDueAt ?? Date.now() + (reason === 'post-push' ? POST_PUSH_DELAY_MS : 0)
+    const stopped = !Number.isFinite(refreshIntervalForCandidate(candidate))
+    const exposureDueAt =
+      reexposed &&
+      stopped &&
+      candidate.cachedFetchedAt != null &&
+      Date.now() - candidate.cachedFetchedAt >= REVIEW_REFRESH_COOLDOWN_MS
+        ? Date.now()
+        : null
+    const dueAt = Math.max(
+      exposureDueAt ?? freshDueAt ?? Date.now() + (reason === 'post-push' ? POST_PUSH_DELAY_MS : 0),
+      bypassesFreshnessDelay(reason) ? 0 : (this.backgroundNotBefore.get(key)?.until ?? 0)
+    )
+    if (!Number.isFinite(dueAt) && !existing) {
+      return { alias, key, dueAt, coalesced: false }
+    }
     if (!existing) {
       this.entries.set(key, {
         key,
@@ -87,12 +198,21 @@ export class PRRefreshQueue {
         priority,
         dueAt,
         queuedAt: this.nextOrder(),
+        followUp: reason === 'visible' && freshDueAt !== null && exposureDueAt === null,
         windowId
       })
       return { alias, key, dueAt, coalesced: false }
     }
 
-    existing.aliases.set(alias.cacheKey, alias)
+    setLiveAlias(existing.aliases, alias)
+    if (
+      reason === 'visible' &&
+      !shouldSkipFresh(candidate, reason) &&
+      existing.reason === 'visible'
+    ) {
+      existing.dueAt = Math.min(existing.dueAt, dueAt)
+      existing.followUp = false
+    }
     const shouldPromote =
       priority > existing.priority ||
       reason === 'manual' ||
@@ -111,7 +231,8 @@ export class PRRefreshQueue {
         ...existing.candidate,
         cacheKey: candidate.cacheKey,
         branch: candidate.branch,
-        currentHeadOid: candidate.currentHeadOid ?? null
+        currentHeadOid: candidate.currentHeadOid ?? null,
+        isSelected: candidate.isSelected
       }
     }
     return { alias, key, dueAt, coalesced: true }
@@ -132,9 +253,7 @@ export class PRRefreshQueue {
     if (existing.candidate.cacheKey === alias.cacheKey) {
       existing.candidate = {
         ...existing.candidate,
-        cacheKey: replacement.cacheKey,
-        branch: replacement.branch,
-        worktreeId: replacement.worktreeId,
+        ...replacement,
         currentHeadOid: replacement.currentHeadOid ?? null,
         isArchived: false,
         isBare: false
@@ -144,31 +263,9 @@ export class PRRefreshQueue {
 
   pruneWorktreeAliases(worktreeId: string): void {
     for (const [key, entry] of this.entries) {
-      let removed = false
-      for (const [cacheKey, alias] of entry.aliases) {
+      for (const alias of entry.aliases.values()) {
         if (alias.worktreeId === worktreeId) {
-          entry.aliases.delete(cacheKey)
-          removed = true
-        }
-      }
-      if (!removed) {
-        continue
-      }
-      if (entry.aliases.size === 0) {
-        this.entries.delete(key)
-        this.resetRetryState(key)
-        continue
-      }
-      if (entry.candidate.worktreeId === worktreeId) {
-        const replacement = entry.aliases.values().next().value
-        if (replacement) {
-          entry.candidate = {
-            ...entry.candidate,
-            cacheKey: replacement.cacheKey,
-            branch: replacement.branch,
-            worktreeId: replacement.worktreeId,
-            currentHeadOid: replacement.currentHeadOid ?? null
-          }
+          this.removeInvalidAlias(key, alias)
         }
       }
     }
@@ -181,7 +278,6 @@ export class PRRefreshQueue {
         continue
       }
       this.entries.delete(key)
-      this.resetRetryState(key)
       removed.push(entry)
     }
     return removed
@@ -190,20 +286,28 @@ export class PRRefreshQueue {
   setVisibleFollowUp(entry: PRRefreshQueueEntry): void {
     const existing = this.entries.get(entry.key)
     if (!existing) {
-      this.entries.set(entry.key, entry)
+      this.set(entry.key, entry)
       return
     }
+    let candidateSuperseded = false
     for (const alias of entry.aliases.values()) {
-      existing.aliases.set(alias.cacheKey, alias)
+      const preserved = mergeFollowUpAlias(existing.aliases, alias)
+      if (
+        preserved &&
+        alias.worktreeId === entry.candidate.worktreeId &&
+        !sameAliasRequestIdentity(preserved, alias)
+      ) {
+        candidateSuperseded = true
+      }
     }
     if (
+      candidateSuperseded ||
       bypassesFreshnessDelay(existing.reason) ||
-      existing.priority > entry.priority ||
-      existing.dueAt <= entry.dueAt
+      existing.priority > entry.priority
     ) {
       return
     }
-    this.entries.set(entry.key, { ...entry, aliases: existing.aliases })
+    this.set(entry.key, { ...entry, aliases: existing.aliases })
   }
 
   ordered(

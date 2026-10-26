@@ -1,10 +1,13 @@
 import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
+import { getPairedWebClientEnvironmentId } from '@/lib/paired-web-client-host'
+import { assertEnvironmentSupportsExtraAgentArgs } from './automation-capability-probe'
 import type {
   Automation,
   AutomationCreateInput,
   AutomationRun,
   AutomationUpdateInput
 } from '../../../../shared/automations-types'
+import type { StableAutomationAuthorityRef } from '../../../../shared/automation-owner-ref'
 import { parseExecutionHostId } from '../../../../shared/execution-host'
 import type { GlobalSettings } from '../../../../shared/global-settings-types'
 
@@ -46,6 +49,24 @@ export function getAutomationTargetFromHostId(
   const parsed = parseExecutionHostId(hostId)
   return parsed?.kind === 'runtime'
     ? { kind: 'environment', environmentId: parsed.environmentId }
+    : { kind: 'local' }
+}
+
+/** Map paired web local/SSH hosts to the server runtime authority that the catalog lists. */
+export function getAutomationListedTargetFromHostId(
+  hostId: string | null | undefined,
+  state: { runtimeEnvironments?: readonly { id: string }[] }
+): AutomationHostTarget {
+  const target = getAutomationTargetFromHostId(hostId)
+  const environmentId = target.kind === 'local' ? getPairedWebClientEnvironmentId(state) : null
+  return environmentId ? { kind: 'environment', environmentId } : target
+}
+
+export function getAutomationAuthorityTarget(
+  authority: StableAutomationAuthorityRef
+): AutomationHostTarget {
+  return authority.kind === 'runtime'
+    ? { kind: 'environment', environmentId: authority.environmentId }
     : { kind: 'local' }
 }
 
@@ -104,11 +125,7 @@ export async function listAutomationsForTarget(
   return result.automations
 }
 
-/**
- * One automation's history, never a host's. Usage totals for the list come from
- * the authority's own list projection; fetching every run to compute them made
- * the page's cost scale with retained history rather than with what is on screen.
- */
+/** Fetch one automation’s history; list usage comes from authority projections so page cost cannot scale with all retained runs. */
 export async function listAutomationRunsForTarget(
   target: AutomationHostTarget,
   automationId: string
@@ -128,6 +145,9 @@ export async function updateAutomationForTarget(
   sourceTarget?: AutomationHostTarget | null
 ): Promise<Automation> {
   const target = getAutomationOwnerTarget(automation, sourceTarget)
+  if (target.kind === 'environment') {
+    await assertEnvironmentSupportsExtraAgentArgs(target.environmentId, updates.extraAgentArgs)
+  }
   const result = await callRuntimeRpc<{ automation: Automation }>(
     target,
     'automation.update',

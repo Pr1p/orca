@@ -31,7 +31,7 @@ import {
   DEFAULT_AGENT_VALUE,
   readInheritedCommandTemplate
 } from './repository-source-control-ai-labels'
-import { createRepoAiPersistQueue } from './repository-source-control-ai-persist-queue'
+import { createRepoAiPersistQueue } from './repository/source-control/repository-source-control-ai-persist-queue'
 
 export { normalizeRepoAiDraft as normalizePersistedRepoAi } from './repository-source-control-ai-draft'
 
@@ -45,11 +45,7 @@ type UseRepositorySourceControlAiGlobalUxArgs = {
   updateRepo: (repoId: string, updates: SourceControlAiRepoUpdate) => void | Promise<boolean>
 }
 
-/**
- * Match global Source Control AI save UX for per-repo overrides:
- * - Selects / simple controls persist immediately (optimistic UI)
- * - Action CLI args + command template draft until the per-action Save
- */
+/** Persist simple controls optimistically; draft action CLI args/templates until per-action Save, matching global UX. */
 export function useRepositorySourceControlAiGlobalUx({
   repoId,
   persistedRepoAi,
@@ -83,25 +79,24 @@ export function useRepositorySourceControlAiGlobalUx({
   const lastSyncedRepoIdRef = useRef(repoId)
   const pendingWritesRef = useRef(0)
 
-  const queueRef = useRef(
-    createRepoAiPersistQueue({
-      getRepoId: () => repoIdRef.current,
-      getPersisted: () => persistedRef.current,
-      setPersisted: (value) => {
-        persistedRef.current = value
-        if (mountedRef.current) {
-          setBaselineRepoAiRef.current(value)
-        }
-      },
-      updateRepo: (id, updates) => updateRepoRef.current(id, updates),
-      isMounted: () => mountedRef.current,
-      onError: (message) => {
-        if (mountedRef.current) {
-          setSaveError(message)
-        }
+  const queueRef = useRef<ReturnType<typeof createRepoAiPersistQueue>>(undefined!)
+  queueRef.current ??= createRepoAiPersistQueue({
+    getRepoId: () => repoIdRef.current,
+    getPersisted: () => persistedRef.current,
+    setPersisted: (value) => {
+      persistedRef.current = value
+      if (mountedRef.current) {
+        setBaselineRepoAiRef.current(value)
       }
-    })
-  )
+    },
+    updateRepo: (id, updates) => updateRepoRef.current(id, updates),
+    isMounted: () => mountedRef.current,
+    onError: (message) => {
+      if (mountedRef.current) {
+        setSaveError(message)
+      }
+    }
+  })
 
   useEffect(() => {
     const repoChanged = lastSyncedRepoIdRef.current !== repoId
@@ -150,7 +145,7 @@ export function useRepositorySourceControlAiGlobalUx({
       if (!endWrite(repoIdForWrite)) {
         return
       }
-      // Only snap when no sibling write is in flight — a failed field must not wipe another.
+      // Roll back only without sibling writes so one failed field cannot erase another.
       if (!ok && pendingWritesRef.current === 0) {
         commitImmediate(persistedRef.current)
       }
@@ -168,7 +163,7 @@ export function useRepositorySourceControlAiGlobalUx({
 
   const commitCustomCommand = (value: string | undefined): void => {
     setCustomCommandDraft(value ?? '')
-    // Blur fires even when unchanged — skip the queue for true no-ops.
+    // Unchanged blur must not enter the persistence queue.
     const next = withRepoAiCustomCommand(persistedRef.current, value)
     if (JSON.stringify(next) === JSON.stringify(persistedRef.current)) {
       setCustomCommandDraft((latest) => (latest === (value ?? '') ? null : latest))

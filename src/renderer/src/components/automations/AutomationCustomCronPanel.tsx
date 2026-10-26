@@ -2,10 +2,8 @@ import React from 'react'
 import { CheckCircle2, CircleAlert } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
-import {
-  describeAutomationSchedule,
-  getAutomationCronExpressionFields
-} from '../../../../shared/automation-schedules'
+import { describeAutomationSchedule } from '../../../../shared/automation-schedules'
+import { getAutomationCronExpressionFields } from '../../../../shared/automation-schedule-parsing'
 import { formatUiAutomationScheduleDescriptor } from './automation-schedule-label'
 import type { AutomationDraft } from './AutomationEditorDialog'
 import { Field } from './automation-page-parts'
@@ -13,8 +11,7 @@ import { translate } from '@/i18n/i18n'
 
 const FIELD_CONTROL_CLASS = 'border-input bg-input/30 shadow-xs dark:bg-input/30'
 
-// Why: chip identity is the cron field position, not the copy — two locales may render two fields
-// with the same word, and a React key must not change when the UI language does.
+// Key chips by cron position; translated labels can collide or change with language.
 const AUTOMATION_CRON_FIELD_IDS = ['minute', 'hour', 'day', 'month', 'weekday'] as const
 
 /** Cron field headers in cron field order, in the configured UI language. */

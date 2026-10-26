@@ -13,14 +13,20 @@ import {
   testState
 } from './runtime-home-service-test-harness'
 
+// Keep asserted config bytes independent of platform socket-path limits.
+vi.mock('../codex/codex-daemon-socket-path-guard', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  applyCodexDaemonSocketGuard: (config: string) => config
+}))
+
 vi.mock('electron', () => ({
   app: {
     getPath: () => testState.userDataDir
   }
 }))
 
-vi.mock('node:os', async () => {
-  const actual = await vi.importActual<typeof import('node:os')>('node:os') // eslint-disable-line @typescript-eslint/consistent-type-imports -- vi.importActual requires inline import()
+vi.mock(import('node:os'), async (importOriginal) => {
+  const actual = await importOriginal()
   return {
     ...actual,
     homedir: () => testState.fakeHomeDir
@@ -61,11 +67,11 @@ describe('CodexRuntimeHomeService', () => {
       '',
       '[model_providers.codex-lb]',
       'base_url = "https://codex-lb.example.test/v1"',
-      'env_key = "CODEX_LB_API_KEY"',
+      'env_key = "EXAMPLE_GATEWAY_TOKEN"',
       ''
     ].join('\n')
     writeFileSync(canonicalConfigPath, canonicalConfig, 'utf-8')
-    const store = createStore(createSettings({ shellStartupEnvProbeSupported: false }))
+    const store = createStore(createSettings({ realHomeRoutable: false }))
     const { CodexRuntimeHomeService } = await import('./runtime-home-service')
     const service = new CodexRuntimeHomeService(store as never)
 

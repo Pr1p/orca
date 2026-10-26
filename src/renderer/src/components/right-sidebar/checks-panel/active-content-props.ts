@@ -19,10 +19,12 @@ export type ChecksPanelActiveContentModel = Pick<
   | 'activeWorktreeId'
   | 'agentComposerState'
   | 'checks'
+  | 'checksError'
   | 'checksLoading'
   | 'claimedCommentResolutionRef'
   | 'commentResolutionLaunchAcceptedRef'
   | 'comments'
+  | 'commentsError'
   | 'commentsLoading'
   | 'commentsSelectionClearRequest'
   | 'conflictDetailsRefreshing'
@@ -46,7 +48,7 @@ export type ChecksPanelActiveContentModel = Pick<
     | 'activeConflictReview'
     | 'activeGitLabReview'
     | 'activeReview'
-    | 'linkedPR'
+    | 'linkedGitLabMR'
     | 'pr'
     | 'prRefreshState'
     | 'setChecksPanelContentRef'
@@ -54,6 +56,7 @@ export type ChecksPanelActiveContentModel = Pick<
   Pick<
     ChecksPanelCommentResolutionState,
     | 'aiActionDisabledReason'
+    | 'fixChecksDisabledReason'
     | 'canTargetPRComments'
     | 'commentsDisabledReason'
     | 'handleResolve'
@@ -85,10 +88,10 @@ export type ChecksPanelActiveContentModel = Pick<
   Pick<
     ChecksPanelCheckAndReviewActionsState,
     | 'handleFixChecksWithAI'
-    | 'handleLinkAnotherPullRequest'
+    | 'handleLinkAnotherReview'
     | 'handleOpenPR'
     | 'handleOpenStackPR'
-    | 'handleUnlinkPullRequest'
+    | 'handleUnlinkReview'
   > &
   Pick<ChecksPanelRefreshState, 'handleRefresh'> &
   Pick<ChecksPanelAiQueueState, 'handleResolveCommentsWithAI' | 'handleResolveConflictsWithAI'> &

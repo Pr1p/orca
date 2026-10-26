@@ -9,6 +9,7 @@ import {
   applyBrowserPageViewportLayout,
   syncBrowserPageChromeInset
 } from '../host-guest/browser-page-viewport'
+import { installWindowVisibilityInterval } from '@/lib/window-visibility-interval'
 import { shouldPollChromiumErrorPage } from './chromium-error-page-polling'
 import { isChromiumErrorPage } from '../describe-page/browser-page-url-display'
 import type { BrowserTabPageState } from '../describe-page/browser-page-types'
@@ -23,7 +24,6 @@ export function useBrowserPageWebviewUrlSync({
   webviewRef,
   chromeHeaderRef,
   lastKnownWebviewUrlRef,
-  trackNextLoadingEventRef,
   keepAddressBarFocusRef,
   addressBarInputRef,
   browserTabUrlRef,
@@ -40,7 +40,6 @@ export function useBrowserPageWebviewUrlSync({
   webviewRef: MutableRefObject<Electron.WebviewTag | null>
   chromeHeaderRef: RefObject<HTMLDivElement | null>
   lastKnownWebviewUrlRef: MutableRefObject<string | null>
-  trackNextLoadingEventRef: MutableRefObject<boolean>
   keepAddressBarFocusRef: MutableRefObject<boolean>
   addressBarInputRef: RefObject<HTMLInputElement | null>
   browserTabUrlRef: MutableRefObject<string>
@@ -97,8 +96,6 @@ export function useBrowserPageWebviewUrlSync({
       webview.src !== normalizedUrl &&
       declaredSrc !== normalizedUrl
     ) {
-      // Why: browserTab.url changes are Orca-driven navigations; gate did-start-loading so only real navigations show loading UI.
-      trackNextLoadingEventRef.current = normalizedUrl !== ORCA_BROWSER_BLANK_URL
       lastKnownWebviewUrlRef.current = normalizedUrl
       webview.src = normalizedUrl
       if (normalizedUrl !== ORCA_BROWSER_BLANK_URL) {
@@ -114,7 +111,6 @@ export function useBrowserPageWebviewUrlSync({
     focusWebviewNow,
     keepAddressBarFocusRef,
     lastKnownWebviewUrlRef,
-    trackNextLoadingEventRef,
     webviewRef
   ])
 
@@ -151,10 +147,11 @@ export function useBrowserPageWebviewUrlSync({
       }
     }
 
-    // Why: some Electron builds paint chrome-error pages without a did-fail-load event; poll only while the active tab loads as a fallback.
-    detectChromiumErrorPage()
-    const intervalId = window.setInterval(detectChromiumErrorPage, 250)
-    return () => window.clearInterval(intervalId)
+    // Some Electron builds omit did-fail-load; poll loading visible pages only, then re-read durable guest state on visibility return.
+    return installWindowVisibilityInterval({
+      run: detectChromiumErrorPage,
+      intervalMs: 250
+    })
   }, [
     addressBarValueRef,
     browserTabId,

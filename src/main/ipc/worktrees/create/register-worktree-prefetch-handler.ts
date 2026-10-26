@@ -1,5 +1,7 @@
 import { ipcMain } from 'electron'
 import { prefetchWorktreeCreateBase } from '../../../worktree-create-base-prefetch'
+import { prepareWorktreeCreateForRepo } from '../../../worktree-create-preparation'
+import { getWorktreeCreatePrefetchGitOptions } from '../../../project-runtime-git-options'
 import type { WorktreeIpcContext } from '../worktree-ipc-context'
 
 export function registerWorktreePrefetchHandler(context: WorktreeIpcContext): void {
@@ -13,9 +15,16 @@ export function registerWorktreePrefetchHandler(context: WorktreeIpcContext): vo
         return
       }
       try {
-        await prefetchWorktreeCreateBase({ repo, baseBranch: args.baseBranch, runtime })
+        await prefetchWorktreeCreateBase({
+          repo,
+          baseBranch: args.baseBranch,
+          runtime,
+          gitOptions: getWorktreeCreatePrefetchGitOptions(store, repo),
+          prepareCheckout: (base, beforeMaterialization) =>
+            prepareWorktreeCreateForRepo(store, repo, base, beforeMaterialization)
+        })
       } catch {
-        // Why: optimistic warm-up; the real create path awaits the same refresh and reports failures there.
+        // Speculative failure is reported by the real create path when it retries this refresh.
       }
     }
   )

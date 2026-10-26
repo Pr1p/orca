@@ -106,6 +106,35 @@ describe('useAiVaultExecutionHostScope', () => {
     expect(latest?.activeExecutionHostScope).toBeNull()
   })
 
+  it('does not claim local history when the active workspace host cannot be resolved (#13713)', async () => {
+    await renderHook({
+      activeWorktreeId: 'repo-1::/remote/repo',
+      resumeTargetState: {
+        folderWorkspaces: [],
+        projectGroups: [],
+        repos: [],
+        worktreesByRepo: {}
+      } as unknown as AiVaultSessionResumeTargetState
+    })
+
+    expect(latest?.executionHostScope).not.toBe('local')
+    expect(latest?.executionHostScope).toBe('all')
+  })
+
+  it('keeps local history when no workspace is selected at all', async () => {
+    await renderHook({
+      activeWorktreeId: null,
+      resumeTargetState: {
+        folderWorkspaces: [],
+        projectGroups: [],
+        repos: [],
+        worktreesByRepo: {}
+      } as unknown as AiVaultSessionResumeTargetState
+    })
+
+    expect(latest?.executionHostScope).toBe('local')
+  })
+
   it('defaults runtime worktrees to their runtime execution host', async () => {
     await renderHook({
       activeWorktreeId: 'repo-1::/runtime/repo',

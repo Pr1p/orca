@@ -3,6 +3,7 @@ import { translate } from '@/i18n/i18n'
 import { noopUnsubscribe } from './web-storage'
 
 export function createBrowserApi(): NonNullable<Partial<PreloadApi>['browser']> {
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: a partial stub; withFallback in web-preload-api answers every browser member it omits.
   return {
     registerGuest: () => Promise.resolve(false),
     isGuestRegistered: () => Promise.resolve(false),
@@ -10,6 +11,7 @@ export function createBrowserApi(): NonNullable<Partial<PreloadApi>['browser']> 
     unregisterGuest: () => Promise.resolve(),
     openDevTools: () => Promise.resolve(false),
     setViewportOverride: () => Promise.resolve(false),
+    reportViewportScrollState: () => {},
     setAnnotationViewportBridge: () => Promise.resolve(false),
     // A web client never hosts pages, so it has no lease to publish over.
     publishClientPageMetadata: () => Promise.resolve({ status: 'refused' as const }),
@@ -22,6 +24,7 @@ export function createBrowserApi(): NonNullable<Partial<PreloadApi>['browser']> 
     onDownloadProgress: () => noopUnsubscribe,
     onDownloadFinished: () => noopUnsubscribe,
     onContextMenuRequested: () => noopUnsubscribe,
+    onTargetUrlChanged: () => noopUnsubscribe,
     onContextMenuDismissed: () => noopUnsubscribe,
     onNavigationUpdate: () => noopUnsubscribe,
     onActivateView: () => noopUnsubscribe,
@@ -64,6 +67,7 @@ export function createBrowserApi(): NonNullable<Partial<PreloadApi>['browser']> 
     onGrabModeToggle: () => noopUnsubscribe,
     onGrabActionShortcut: () => noopUnsubscribe,
     sessionListProfiles: () => Promise.resolve([]),
+    onSessionProfilesChanged: () => noopUnsubscribe,
     // Web clients render remote workspaces through the server; no local SSH routing exists.
     prepareSshWorkspacePartition: () =>
       Promise.reject(new Error('browser_local_route_unavailable')),
@@ -93,6 +97,8 @@ export function createBrowserApi(): NonNullable<Partial<PreloadApi>['browser']> 
         )
       }),
     sessionClearDefaultCookies: () => Promise.resolve(false),
+    sitePermissionsList: () => Promise.resolve([]),
+    sitePermissionsSet: () => Promise.resolve([]),
     notifyActiveTabChanged: () => Promise.resolve(false)
   } as unknown as NonNullable<Partial<PreloadApi>['browser']>
 }

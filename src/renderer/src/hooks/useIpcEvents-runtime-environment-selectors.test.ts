@@ -2,11 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   buildRuntimeClientEventEnvironmentKey,
   createRuntimeEnvironmentStoreSyncSubscriber,
-  getNewlyConnectedRuntimeEnvironmentIds,
-  getNewlyDisconnectedRuntimeEnvironmentIds,
   getReachableRuntimeEnvironmentIds,
   getRuntimeClientEventEnvironmentIds,
-  getRuntimeProjectRefreshEnvironmentIds,
   invalidateRuntimeClientEventReplay
 } from './ipc-events/runtime-environment-subscription-selection'
 import type {
@@ -19,56 +16,6 @@ describe('buildRuntimeClientEventEnvironmentKey', () => {
     expect(buildRuntimeClientEventEnvironmentKey(['env-b', 'env-a', 'env-b'])).toBe(
       buildRuntimeClientEventEnvironmentKey(['env-a', 'env-b'])
     )
-  })
-})
-
-describe('getNewlyConnectedRuntimeEnvironmentIds', () => {
-  it('returns only environments that became connected', () => {
-    expect(getNewlyConnectedRuntimeEnvironmentIds(['env-a'], ['env-a', 'env-b'])).toEqual(['env-b'])
-  })
-
-  it('ignores environments that disconnected or stayed connected', () => {
-    expect(getNewlyConnectedRuntimeEnvironmentIds(['env-a', 'env-b'], ['env-a'])).toEqual([])
-  })
-
-  it('treats every environment as new when none were connected before', () => {
-    expect(getNewlyConnectedRuntimeEnvironmentIds([], ['env-a', 'env-a', 'env-b'])).toEqual([
-      'env-a',
-      'env-b'
-    ])
-  })
-})
-
-describe('getNewlyDisconnectedRuntimeEnvironmentIds', () => {
-  it('returns only environments whose transport was just observed down', () => {
-    expect(getNewlyDisconnectedRuntimeEnvironmentIds(['env-a', 'env-b'], ['env-a'])).toEqual([
-      'env-b'
-    ])
-    expect(getNewlyDisconnectedRuntimeEnvironmentIds(['env-a'], ['env-a', 'env-b'])).toEqual([])
-  })
-})
-
-describe('getRuntimeProjectRefreshEnvironmentIds', () => {
-  it('refreshes when an already-desired runtime becomes reachable', () => {
-    expect(
-      getRuntimeProjectRefreshEnvironmentIds({
-        previousDesired: ['env-a'],
-        nextDesired: ['env-a'],
-        previousReachable: [],
-        nextReachable: ['env-a']
-      })
-    ).toEqual(['env-a'])
-  })
-
-  it('deduplicates runtimes that are both newly desired and newly reachable', () => {
-    expect(
-      getRuntimeProjectRefreshEnvironmentIds({
-        previousDesired: [],
-        nextDesired: ['env-a'],
-        previousReachable: [],
-        nextReachable: ['env-a']
-      })
-    ).toEqual(['env-a'])
   })
 })
 
@@ -221,8 +168,7 @@ describe('createRuntimeEnvironmentStoreSyncSubscriber', () => {
           sshStateByEnvironment,
           activeEnvironmentId: 'runtime-a'
         })
-        // Zustand publishes this nested write synchronously. The outer pass must
-        // absorb its generation instead of enumerating/syncing it a second time.
+        // The outer pass must absorb synchronous nested generation changes without syncing twice.
         subscriber(currentState, previousState)
       },
       sync: () => {
@@ -303,6 +249,7 @@ describe('createRuntimeEnvironmentStoreSyncSubscriber', () => {
 describe('invalidateRuntimeClientEventReplay', () => {
   it('explicitly syncs an advanced SSH generation when stale publication is a no-op and hydration fails', async () => {
     const sshStateReference = new Map()
+    const refreshRuntimeStatus = vi.fn()
     const requestProjectRefresh = vi.fn()
     const markEnvironmentSshStateStale = vi.fn()
     const sync = vi.fn()
@@ -312,6 +259,7 @@ describe('invalidateRuntimeClientEventReplay', () => {
 
     invalidateRuntimeClientEventReplay({
       getSshStateReference: () => sshStateReference,
+      refreshRuntimeStatus,
       requestProjectRefresh,
       markEnvironmentSshStateStale,
       hydrateEnvironmentSshState,
@@ -319,6 +267,7 @@ describe('invalidateRuntimeClientEventReplay', () => {
     })
     await Promise.resolve()
 
+    expect(refreshRuntimeStatus).toHaveBeenCalledOnce()
     expect(requestProjectRefresh).toHaveBeenCalledOnce()
     expect(markEnvironmentSshStateStale).toHaveBeenCalledOnce()
     expect(sync).toHaveBeenCalledOnce()
@@ -331,6 +280,7 @@ describe('invalidateRuntimeClientEventReplay', () => {
 
     invalidateRuntimeClientEventReplay({
       getSshStateReference: () => sshStateReference,
+      refreshRuntimeStatus: vi.fn(),
       requestProjectRefresh: vi.fn(),
       markEnvironmentSshStateStale: () => {
         sshStateReference = new Map()

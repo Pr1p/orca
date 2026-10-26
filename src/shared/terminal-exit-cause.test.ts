@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   describeTerminalExitCause,
   isDeliberateTerminalExit,
+  isProvenProcessExit,
   resolveProcessExitCause,
   resolveUnreportedExitCause
 } from './terminal-exit-cause'
@@ -15,8 +16,7 @@ describe('resolveProcessExitCause', () => {
   })
 
   it('refuses to read a status the host cannot report', () => {
-    // macOS wraps every PTY in `login -flpq`, which returns 0 for a shell that
-    // exited 42 and 0 for one that was SIGKILLed.
+    // macOS login -flpq returns 0 for both exit 42 and SIGKILL.
     expect(
       resolveProcessExitCause({ exitCode: 0, signal: 0, hostReportsChildExitStatus: false })
     ).toEqual({ kind: 'unknown', reason: 'host_status_unavailable' })
@@ -50,14 +50,12 @@ describe('resolveProcessExitCause', () => {
 
 describe('resolveUnreportedExitCause', () => {
   it('refuses to turn a bare zero into a clean finish', () => {
-    // An older daemon, or the SSH relay, forwards a code and no cause. Its 0 may
-    // be a clean finish or a SIGKILL; nothing downstream can tell them apart.
+    // Older daemons/relays supply no cause; bare zero cannot distinguish a clean exit from a signal.
     expect(resolveUnreportedExitCause(0)).toEqual({ kind: 'unknown', reason: 'cause_unreported' })
   })
 
   it('keeps a bare nonzero status, which nothing fabricates', () => {
-    // node-pty only ever pairs a signal with 0, and a wrapper only ever returns
-    // 0, so a nonzero code really is the child's wait status.
+    // node-pty pairs signals with 0 and the wrapper returns 0, so nonzero preserves the child’s wait status.
     expect(resolveUnreportedExitCause(137)).toEqual({ kind: 'exited', exitCode: 137 })
   })
 
@@ -95,5 +93,31 @@ describe('isDeliberateTerminalExit', () => {
     expect(isDeliberateTerminalExit({ kind: 'exited', exitCode: 0 })).toBe(false)
     expect(isDeliberateTerminalExit({ kind: 'signaled', signal: 9 })).toBe(false)
     expect(isDeliberateTerminalExit({ kind: 'unknown', reason: 'stop_unverified' })).toBe(false)
+  })
+})
+
+describe('isProvenProcessExit', () => {
+  it('accepts host-vouched process statuses', () => {
+    expect(isProvenProcessExit(0)).toBe(true)
+    expect(isProvenProcessExit(137)).toBe(true)
+  })
+
+  it('rejects the synthetic loss sentinel', () => {
+    // A host shutdown can deliver -1 for every PTY without proving process death.
+    expect(isProvenProcessExit(-1)).toBe(false)
+  })
+
+  it('answers whether the process ended, not why — so it may differ from the cause on zero', () => {
+    // Unknown reason still permits proven death; conflating them would strand exited panes.
+    expect(resolveUnreportedExitCause(0)).toEqual({ kind: 'unknown', reason: 'cause_unreported' })
+    expect(isProvenProcessExit(0)).toBe(true)
+  })
+
+  it('keeps a shell that a user closed with `exit` tearing down on macOS', () => {
+    // macOS login hides the cause but waits for the shell; its exit still proves shell death and permits teardown.
+    expect(
+      resolveProcessExitCause({ exitCode: 0, signal: 0, hostReportsChildExitStatus: false }).kind
+    ).toBe('unknown')
+    expect(isProvenProcessExit(0)).toBe(true)
   })
 })

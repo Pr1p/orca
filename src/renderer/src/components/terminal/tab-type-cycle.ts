@@ -1,4 +1,6 @@
-export type TabCycleType = 'terminal' | 'editor' | 'browser' | 'simulator'
+import type { WorkspaceVisibleTabType } from '../../../../shared/tab-types'
+
+export type TabCycleType = WorkspaceVisibleTabType
 
 export type TypeCyclableTab = {
   type: TabCycleType
@@ -16,17 +18,23 @@ type GetNextTabWithinActiveTypeParams = {
   direction: number
 }
 
+/** Use the matching entity-ID domain; single-type callers need activeAgentSessionEntityId to avoid selecting a background terminal under a structured tab. */
 export function getActiveEntityIdForTabType(
   activeTabType: TabCycleType,
   activeTabId: string | null,
   activeFileId: string | null,
-  activeBrowserTabId: string | null
+  activeBrowserTabId: string | null,
+  activeAgentSessionEntityId: string | null = null
 ): string | null {
   if (activeTabType === 'editor') {
     return activeFileId
   }
   if (activeTabType === 'browser') {
     return activeBrowserTabId
+  }
+  // activeTabId can still name a background terminal while a structured tab is active.
+  if (activeTabType === 'agent-session') {
+    return activeAgentSessionEntityId
   }
   if (activeTabType === 'simulator') {
     return activeTabId
@@ -44,10 +52,7 @@ type GetNextTabAcrossAllTypesParams = {
   direction: number
 }
 
-// Why: companion to getNextTabWithinActiveType for the "cycle across every tab"
-// chord (Cmd/Ctrl+Shift+]/[ on fresh installs). Keeps the same dual-id matching semantics
-// (prefer the active group's unified tabId to disambiguate split layouts, fall
-// back to the backing entity id) so behavior matches what the TabBar renders.
+// Match TabBar dual-ID semantics: prefer unified tab ID for split disambiguation, then backing entity ID.
 export function getNextTabAcrossAllTypes({
   tabs,
   activeTabType,

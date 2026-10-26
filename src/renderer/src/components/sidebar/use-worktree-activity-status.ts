@@ -26,15 +26,17 @@ export function useWorktreeActivityStatus(worktreeId: string): WorktreeStatus {
     hasPermission,
     hasLiveWorking,
     hasLiveMonitoring,
+    hasFailed,
     hasInterrupted,
+    hasUnconfirmed,
     hasLiveDone,
     hasRetainedDone,
-    agentStatusPaneIdsByTabId
+    hasRetainedFailed,
+    agentStatusPaneIdsByTabId,
+    stalePaneIdsByTabId
   } = useAppStore(useShallow((s) => selectWorktreeAgentActivitySummary(s, worktreeId)))
 
-  // Why: compact and detailed cards need the same status-dot semantics:
-  // runtime liveness gates title-derived states, then explicit agent rows can
-  // promote working/permission/done so the dot matches visible agent state.
+  // Use common liveness and agent-row precedence so compact and detailed cards show the same status.
   return useMemo(
     () =>
       resolveWorktreeStatus({
@@ -43,13 +45,17 @@ export function useWorktreeActivityStatus(worktreeId: string): WorktreeStatus {
         ptyIdsByTabId: ptyIdsForWorktree,
         runtimePaneTitlesByTabId: runtimePaneTitlesForWorktree,
         agentStatusPaneIdsByTabId,
+        stalePaneIdsByTabId,
         terminalLayoutRootsByTabId,
         hasPermission,
         hasLiveWorking,
         hasLiveMonitoring,
+        hasFailed,
         hasInterrupted,
+        hasUnconfirmed,
         hasLiveDone,
-        hasRetainedDone
+        hasRetainedDone,
+        hasRetainedFailed
       }),
     [
       tabs,
@@ -57,13 +63,17 @@ export function useWorktreeActivityStatus(worktreeId: string): WorktreeStatus {
       ptyIdsForWorktree,
       runtimePaneTitlesForWorktree,
       agentStatusPaneIdsByTabId,
+      stalePaneIdsByTabId,
       terminalLayoutRootsByTabId,
       hasPermission,
       hasLiveWorking,
       hasLiveMonitoring,
+      hasFailed,
       hasInterrupted,
+      hasUnconfirmed,
       hasLiveDone,
-      hasRetainedDone
+      hasRetainedDone,
+      hasRetainedFailed
     ]
   )
 }

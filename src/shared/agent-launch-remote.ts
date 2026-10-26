@@ -1,11 +1,7 @@
-/**
- * Why: a repo reached over SSH runs the Orca CLI through the relay shim, which
- * is always deployed as plain `orca` (Unix) / `orca.cmd` (Windows). The
- * Linux-only `orca-ide` rename — which exists solely to avoid shadowing the
- * GNOME Orca screen reader on a local desktop — must not be applied to those
- * remotes, or `orca-ide claude-teams` lands on a PATH where it does not exist.
- * `connectionId` is the SSH signal; WSL and local stay false.
- */
-export function repoIsRemote(repo: { connectionId?: string | null }): boolean {
-  return Boolean(repo.connectionId)
+import type { Repo } from './repo-types'
+import { getRepoSshConnectionId } from './execution-host'
+
+/** SSH file owners use relay orca/orca.cmd, never the Linux desktop orca-ide rename. Resolve executionHostId over stale connectionId; runtime hosts are remote only with nested SSH. Local-PTY routing uses getSshTargetIdForExecutionHost; already-resolved launch connections need no re-derivation. */
+export function repoIsRemote(repo: Pick<Repo, 'connectionId' | 'executionHostId'>): boolean {
+  return getRepoSshConnectionId(repo) !== null
 }

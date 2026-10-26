@@ -7,12 +7,11 @@ import {
   SelectValue
 } from '@/components/ui/select'
 import type { AutomationSchedulePreset } from '../../../../shared/automations-types'
-import {
-  buildAutomationCronSchedule,
-  isValidAutomationSchedule
-} from '../../../../shared/automation-schedules'
+import { buildAutomationCronSchedule } from '../../../../shared/automation-schedule-occurrences'
+import { isValidAutomationSchedule } from '../../../../shared/automation-schedule-parsing'
 import type { AutomationDraft } from './AutomationEditorDialog'
 import { AutomationCustomCronPanel } from './AutomationCustomCronPanel'
+import { acceptsAutomationDraftSchedule } from './automation-schedule-input-gate'
 import { AutomationTimeField, parseAutomationTime } from './AutomationTimeField'
 import { Field } from './automation-page-parts'
 import { translate } from '@/i18n/i18n'
@@ -76,10 +75,15 @@ export function AutomationSchedulePicker({
 }): React.JSX.Element {
   const customSchedule = draft.customSchedule.trim()
   const weekdayNames = getUiWeekdayNames()
+  // Match save validation: an untouched legacy cadence is not new input and must not show a strict-validation error.
+  const acceptsSchedule = (schedule: string): boolean =>
+    acceptsAutomationDraftSchedule({
+      customSchedule: schedule,
+      savedRrule: draft.savedSchedule,
+      validate: validateAdvancedSchedule
+    })
   const customScheduleInvalid =
-    draft.preset === 'custom' &&
-    customSchedule.length > 0 &&
-    !validateAdvancedSchedule(customSchedule)
+    draft.preset === 'custom' && customSchedule.length > 0 && !acceptsSchedule(customSchedule)
 
   const setTime = (time: string): void => {
     onDraftChange((current) => ({
@@ -121,7 +125,7 @@ export function AutomationSchedulePicker({
         <AutomationCustomCronPanel
           draft={draft}
           customScheduleInvalid={customScheduleInvalid}
-          validateAdvancedSchedule={validateAdvancedSchedule}
+          validateAdvancedSchedule={acceptsSchedule}
           onDraftChange={onDraftChange}
         />
       ) : (

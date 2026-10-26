@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   formatQuestionAnswer,
+  formatQuestionFreeTextAnswer,
   mobileChatQuestionKey,
   parseAgentQuestion,
   type MobileChatQuestion
@@ -62,7 +63,6 @@ describe('parseAgentQuestion', () => {
   })
 
   it('returns null for a single bare option with no introducing prompt', () => {
-    // A lone "- item" in prose must not be treated as a question.
     expect(parseAgentQuestion('Here is what I did:\nsome work\n- one stray bullet')).toBeNull()
   })
 
@@ -141,6 +141,27 @@ describe('formatQuestionAnswer', () => {
     expect(formatQuestionAnswer(numbered, [])).toBe('')
     expect(formatQuestionAnswer(numbered, ['   '])).toBe('')
   })
+
+  it('prefixes free-text answers with an opaque prompt token when provided', () => {
+    expect(
+      formatQuestionFreeTextAnswer({ ...numbered, freeTextToken: 'target' }, '  hi there  ')
+    ).toBe(`target:${encodeURIComponent('hi there')}`)
+  })
+
+  it('encodes empty and whitespace answers only when allowed', () => {
+    const withInput: MobileChatQuestion = {
+      ...numbered,
+      freeTextToken: 'target',
+      freeTextInput: { allowEmpty: true }
+    }
+    expect(formatQuestionFreeTextAnswer(withInput, '')).toBe('target:')
+    expect(formatQuestionFreeTextAnswer(withInput, '  \n ')).toBe(
+      `target:${encodeURIComponent('  \n ')}`
+    )
+    expect(formatQuestionFreeTextAnswer({ ...withInput, freeTextInput: undefined }, '  \n ')).toBe(
+      ''
+    )
+  })
 })
 
 describe('mobileChatQuestionKey', () => {
@@ -152,6 +173,9 @@ describe('mobileChatQuestionKey', () => {
       optionTokens: ['1', '2']
     }
     expect(mobileChatQuestionKey({ ...first, options: ['A', 'C'] })).not.toBe(
+      mobileChatQuestionKey(first)
+    )
+    expect(mobileChatQuestionKey({ ...first, freeTextToken: 'target-2' })).not.toBe(
       mobileChatQuestionKey(first)
     )
   })

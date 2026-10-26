@@ -1,3 +1,5 @@
+import type { ExecutionHostId } from '../../../../shared/execution-host'
+import { hostedReviewSshConnectionId } from '../../../source-control/hosted-review-execution-host'
 import type {
   CreateHostedReviewInput,
   CreateHostedReviewResult
@@ -26,7 +28,7 @@ import { findOpenPRByHeadBase, readPullRequestTemplate } from './pull-request-te
 export async function createGitHubPullRequest(
   repoPath: string,
   input: CreateHostedReviewInput,
-  connectionId?: string | null,
+  executionHostId: ExecutionHostId,
   options: HostedReviewExecutionOptions = {}
 ): Promise<CreateHostedReviewResult> {
   if (input.provider !== 'github') {
@@ -37,7 +39,10 @@ export async function createGitHubPullRequest(
     }
   }
 
-  // Why: creation targets the origin owning the unqualified head branch; the shared resolver preserves its host (#7331, #8312).
+  // `gh` runs on this client whatever the host; only the git reads under it are routed.
+  const connectionId = hostedReviewSshConnectionId(executionHostId)
+
+  // The unqualified head branch belongs to origin; retain its resolved host.
   const ownerRepo = await getOriginGitHubApiRepository(
     repoPath,
     connectionId,
@@ -50,7 +55,7 @@ export async function createGitHubPullRequest(
       error: 'Creating pull requests requires a GitHub remote.'
     }
   }
-  // The runner host-qualifies --repo from options.host for GHES (#8312).
+  // The runner qualifies --repo using options.host.
   const repoArg = `${ownerRepo.owner}/${ownerRepo.repo}`
 
   const base = normalizeHostedReviewBaseRef(input.base)
@@ -99,10 +104,11 @@ export async function createGitHubPullRequest(
       createArgs.push('--draft')
     }
     try {
-      const context = githubRepoContext(repoPath, connectionId)
+      const localGitOptions = getHostedReviewLocalGitOptions(options)
+      const context = githubRepoContext(repoPath, connectionId, localGitOptions)
       const { stdout } = await ghExecFileAsync(createArgs, {
         ...ghRepoExecOptions(context),
-        ...(connectionId ? {} : getHostedReviewLocalGitOptions(options)),
+        ...(connectionId ? {} : localGitOptions),
         ...githubHostExecOptions(ownerRepo),
         timeout: 60_000,
         idempotent: false

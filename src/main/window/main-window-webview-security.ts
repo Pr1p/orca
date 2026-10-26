@@ -13,45 +13,72 @@ import {
   browserRouteWebContentsRegistry
 } from '../browser/browser-route-session-runtime'
 import { ORCA_BROWSER_BLANK_URL } from '../../shared/constants'
-import { registerPluginPanelNavigationGuard } from '../plugins/plugin-panel-navigation-guard'
+import { DOC_PREVIEW_PARTITION, parseDocPreviewUrl } from '../../shared/doc-preview-scheme'
+import { setDocPreviewFailureSink } from '../browser/doc-preview-failure-notice'
+import {
+  getDocPreviewGrant,
+  revokeAllDocPreviewGrants
+} from '../browser/doc-preview-grant-registry'
+import { isDocPreviewSession } from '../browser/doc-preview-protocol'
+import { registerHostFrameNavigationGuard } from './host-frame-navigation-guard'
 import { installPrivilegedWindowNavigationPolicy } from './privileged-window-navigation'
+
+/** orca-preview is outside normal browser URL admission; require the doc partition and a main-minted user-preview grant. */
+function isAdmissibleDocPreviewAttach(partition: string, src: string): boolean {
+  if (partition !== DOC_PREVIEW_PARTITION) {
+    return false
+  }
+  const target = parseDocPreviewUrl(src)
+  return target !== null && getDocPreviewGrant(target.grantId) !== null
+}
 
 export function installMainWindowWebviewSecurity(mainWindow: BrowserWindow): void {
   installPrivilegedWindowNavigationPolicy(mainWindow.webContents)
-  // Why: containment must be listening before any plugin panel frame is created,
-  // so register it with the window's other navigation policy.
-  registerPluginPanelNavigationGuard(mainWindow.webContents)
+  // New shell documents discard preview ownership bookkeeping; revoke grants the replacement renderer cannot release.
+  revokeAllDocPreviewGrants()
+  mainWindow.webContents.on('did-start-navigation', (details) => {
+    if (details.isMainFrame && !details.isSameDocument) {
+      revokeAllDocPreviewGrants()
+    }
+  })
+  // These WebContents own every preview and its failure sink; destruction leaves no readers.
+  mainWindow.webContents.on('destroyed', () => {
+    setDocPreviewFailureSink(null)
+    revokeAllDocPreviewGrants()
+  })
+  // Install containment before any plugin/chat srcdoc frame is created.
+  registerHostFrameNavigationGuard(mainWindow.webContents)
 
   const browserWindowClosePreload = join(__dirname, 'browser-window-close-preload.js')
+  // Only previews get this pinned editor-link preload; never accept renderer preload values or expose it to browsing guests.
+  const docPreviewLinkPreload = join(__dirname, 'doc-preview-link-preload.js')
   mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
     const src = typeof params.src === 'string' ? params.src : ''
     const normalizedSrc = normalizeBrowserNavigationUrl(src)
     const partition = typeof webPreferences.partition === 'string' ? webPreferences.partition : ''
     const isProfilePartition = browserSessionRegistry.isAllowedPartition(partition)
     const isRoutePartition = browserRouteSessionRegistry.isAllowedPartition(partition)
-    // Why: local direct-SSH partitions exist only after their proxy is verified,
-    // so admission here can never race an unproxied session. They navigate like
-    // profile partitions — the renderer owns their URLs, no main-side grants.
+    // Direct-SSH partitions exist only after proxy verification; renderer URLs need no main-side grants, like profile partitions.
     const isLocalSshPartition = isLocalSshBrowserPartition(partition)
+    const isDocPreviewAttach = isAdmissibleDocPreviewAttach(partition, src)
 
-    // Why: fail closed — deny any src or partition not in the registry allowlist so a renderer bug can't smuggle preload/Node into an unprivileged guest.
+    // Require an allowlisted src/partition; renderer mistakes must not grant preload/Node authority.
     if (
-      !normalizedSrc ||
-      (!isProfilePartition && !isRoutePartition && !isLocalSshPartition) ||
-      (isRoutePartition && normalizedSrc !== ORCA_BROWSER_BLANK_URL)
+      !isDocPreviewAttach &&
+      (!normalizedSrc ||
+        (!isProfilePartition && !isRoutePartition && !isLocalSshPartition) ||
+        (isRoutePartition && normalizedSrc !== ORCA_BROWSER_BLANK_URL))
     ) {
       event.preventDefault()
       return
     }
 
     delete params.preload
-    // Why: preload runs in the page's main world before inline scripts can call window.close().
-    webPreferences.preload = browserWindowClosePreload
-    // Why: older Electron builds expose preloadURL alongside preload; delete both so the guest can't inherit the main preload bridge.
+    // Install main-world close policy before inline scripts can call window.close.
+    webPreferences.preload = isDocPreviewAttach ? docPreviewLinkPreload : browserWindowClosePreload
+    // Clear legacy preloadURL as well as preload so guests cannot inherit the main bridge.
     delete (webPreferences as Record<string, unknown>).preloadURL
-    // Why delete something Electron does not set: 43 does not pass the embedder's
-    // additionalArguments down to a guest, so this clears a key that is absent today. Kept as
-    // insurance — if that ever changes, the guest would read this app's browser-host id.
+    // Electron 43 omits inherited arguments; clear defensively so future inheritance cannot leak browser-host identity.
     delete webPreferences.additionalArguments
     webPreferences.nodeIntegration = false
     webPreferences.nodeIntegrationInSubFrames = false
@@ -61,18 +88,27 @@ export function installMainWindowWebviewSecurity(mainWindow: BrowserWindow): voi
     webPreferences.allowRunningInsecureContent = false
     webPreferences.contextIsolation = true
     webPreferences.sandbox = true
-    // Why: force the browser guest policy even if host markup omits or misspells a preference.
+    // Force hardened guest preferences even if host markup omits/misspells them.
     Object.assign(webPreferences, ORCA_BROWSER_GUEST_WEB_PREFERENCES)
-    // Why: keep the registry-validated partition so isolated session profiles use their own storage while other hardening stays intact.
+    // Preserve only the registry-validated partition so isolated profiles keep their storage.
     webPreferences.partition = partition
   })
 
   mainWindow.webContents.on('did-attach-webview', (_event, guest) => {
-    // Why: attach guest popup/nav policy at creation; waiting for renderer registration races target=_blank/early redirects past it.
+    if (isDocPreviewSession(guest.session)) {
+      // workspace-doc guests cannot use browser routing/popups/auth identity; attach this live host as their read-failure sink.
+      setDocPreviewFailureSink(mainWindow.webContents)
+      browserManager.attachGuestPolicies(guest, null, {
+        profile: 'workspace-doc',
+        host: mainWindow.webContents
+      })
+      return
+    }
+    // Install popup/navigation policy at creation or early redirects/target=_blank can outrun registration.
     browserManager.attachGuestPolicies(guest)
-    // Why: route guests override the generic popup fallback and stay blank until exact main-owned registration.
+    // Route guests stay blank until exact main-owned registration and override generic popup routing.
     browserRouteWebContentsRegistry.attachGuest(guest)
-    // Why: the session proxy cannot stop WebRTC UDP; only the per-contents policy does.
+    // Proxies cannot block WebRTC UDP; enforce it per WebContents.
     enforceLocalSshWebRtcPolicyForGuest(guest)
   })
 }

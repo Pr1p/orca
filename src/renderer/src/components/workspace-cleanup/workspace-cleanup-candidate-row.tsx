@@ -36,10 +36,13 @@ import {
   getCandidateFactStatuses,
   getContextCount,
   getDirtyGitLabel,
-  getReviewPillTone,
   getWorkspaceCleanupBlockerLabels,
   shouldShowGitMetadataChip
 } from './workspace-cleanup-candidate-row-data'
+import {
+  getReviewStateIcon,
+  getReviewStateTone
+} from '@/components/github/review-state-presentation'
 import { StatusPill } from './workspace-cleanup-status-pill'
 import { WorkspaceCleanupMetadataChip } from './workspace-cleanup-metadata-chip'
 import { WorkspaceCleanupForgetLocallyButton } from './workspace-cleanup-forget-locally-button'
@@ -79,11 +82,7 @@ type CandidateRowProps = {
   onView: (candidate: WorkspaceCleanupCandidate) => void
 }
 
-// Why: the cleanup list re-renders on every checkbox/expand/search keystroke;
-// memo keeps each unchanged row from re-rendering. Effective only while the
-// parent passes stable (useCallback) handlers — see WorkspaceCleanupDialog.
-// Scan stream-in still re-renders rows (candidates change, so the reviewInfo
-// prop identity changes); virtualization, not memo, bounds that cost.
+// Memoize unchanged rows with stable parent handlers; streaming candidate changes still render, so virtualization bounds that cost.
 export const CandidateRow = React.memo(function CandidateRow({
   candidate,
   identity,
@@ -107,8 +106,7 @@ export const CandidateRow = React.memo(function CandidateRow({
   onView
 }: CandidateRowProps): React.JSX.Element {
   const deleting = deletionPhase !== undefined
-  // Why: derive from `deleting` too, so the row never offers a checkbox or
-  // Remove button while it is queuing/deleting, even if `removing` was omitted.
+  // Queued/deleting state must disable row actions even when removing was omitted.
   const selectable = canQueueWorkspaceCleanupCandidate(candidate) && !removing && !deleting
   const ignored = candidate.blockers.includes('dismissed')
   const blockers = getWorkspaceCleanupBlockerLabels(candidate)
@@ -255,10 +253,10 @@ export const CandidateRow = React.memo(function CandidateRow({
             ) : null}
             {reviewInfo.label ? (
               <WorkspaceCleanupMetadataChip
-                icon={GitPullRequest}
+                icon={getReviewStateIcon(reviewInfo.state) ?? GitPullRequest}
                 label={getReviewTooltip(reviewInfo)}
                 value={reviewInfo.label}
-                tone={getReviewPillTone(reviewInfo)}
+                toneClassName={getReviewStateTone(reviewInfo.state)}
               />
             ) : null}
           </div>

@@ -1,3 +1,5 @@
+import type { ExecutionHostId } from '../../shared/execution-host'
+import { hostedReviewSshConnectionId } from '../source-control/hosted-review-execution-host'
 import { Buffer } from 'node:buffer'
 import type { CreateHostedReviewInput, CreateHostedReviewResult } from '../../shared/hosted-review'
 import {
@@ -63,8 +65,7 @@ function apiUrl(repo: AzureDevOpsRepoRef, path: string): URL {
   return url
 }
 
-// Why (STA-3494): Azure DevOps Server 400s versioned requests without -preview;
-// the rejection happens before the PR is created, so one retry is safe.
+// A preview-version rejection precedes PR creation, so retrying once is safe.
 async function requestCreatePullRequest(
   repo: AzureDevOpsRepoRef,
   path: string,
@@ -169,7 +170,7 @@ async function findExistingPullRequest(
 export async function createAzureDevOpsPullRequest(
   repoPath: string,
   input: CreateHostedReviewInput,
-  connectionId?: string | null
+  executionHostId: ExecutionHostId
 ): Promise<CreateHostedReviewResult> {
   if (input.provider !== 'azure-devops') {
     return {
@@ -178,6 +179,9 @@ export async function createAzureDevOpsPullRequest(
       error: 'Creating reviews for this provider is not supported yet.'
     }
   }
+
+  // The Azure DevOps REST calls run on this client; only the git reads under them are routed.
+  const connectionId = hostedReviewSshConnectionId(executionHostId)
 
   const repo = await getAzureDevOpsRepoRef(repoPath, connectionId)
   if (!repo) {

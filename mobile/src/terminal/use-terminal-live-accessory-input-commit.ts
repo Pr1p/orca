@@ -2,11 +2,13 @@ import { useCallback, type RefObject } from 'react'
 import type { TextInput } from 'react-native'
 import {
   getTerminalLiveAccessoryBytesDecision,
-  getTerminalLiveAccessoryLocalEditText
+  getTerminalLiveAccessoryLocalEditText,
+  terminalLiveAccessoryInputEndsLine
 } from './terminal-live-text-commit'
 import type { TerminalLiveAccessoryInput } from './terminal-live-accessory-input'
 import { sendTerminalLiveControlAfterPendingFlush } from './terminal-live-control-send-order'
 import type { TerminalLiveInputSender } from './terminal-live-input-sender'
+import { writeTerminalLiveInputText } from './terminal-live-input-text-write'
 
 export type TerminalLiveAccessoryInputCommitResult =
   | { readonly kind: 'allow-raw' }
@@ -21,12 +23,18 @@ export async function getTerminalLiveAccessoryInactiveInputCommitResult(
 
 type TerminalLiveAccessoryInputCommitOptions = {
   readonly activeHandle: string | null
-  readonly applyLiveInputMirror: (handle: string, fieldText: string) => void
+  readonly applyLiveInputMirror: (
+    handle: string,
+    fieldText: string,
+    composing?: boolean
+  ) => Promise<boolean>
   readonly clearPendingLiveInputCommit: () => void
   readonly flushPendingLiveInputText: (expectedHandle: string | null) => Promise<boolean>
   readonly heldLiveInputTextRef: RefObject<string>
+  readonly liveInputComposingRef: RefObject<boolean | undefined>
   readonly liveInputRef: RefObject<TextInput | null>
   readonly liveInputTerminalHandles: ReadonlySet<string>
+  readonly onInteraction: () => void
   readonly pendingLiveInputHandleRef: RefObject<string | null>
   readonly sentLiveInputTextRef: RefObject<string>
   readonly sendLiveTerminalInputRef: RefObject<TerminalLiveInputSender>
@@ -40,8 +48,10 @@ export function useTerminalLiveAccessoryInputCommit({
   clearPendingLiveInputCommit,
   flushPendingLiveInputText,
   heldLiveInputTextRef,
+  liveInputComposingRef,
   liveInputRef,
   liveInputTerminalHandles,
+  onInteraction,
   pendingLiveInputHandleRef,
   sentLiveInputTextRef,
   sendLiveTerminalInputRef,
@@ -58,6 +68,7 @@ export function useTerminalLiveAccessoryInputCommit({
       if (!liveInputTerminalHandles.has(activeHandle)) {
         return getTerminalLiveAccessoryInactiveInputCommitResult(waitForPendingLiveInputFlush)
       }
+      onInteraction()
       const ownsPendingState = pendingLiveInputHandleRef.current === activeHandle
       if (pendingLiveInputHandleRef.current && !ownsPendingState) {
         clearPendingLiveInputCommit()
@@ -66,30 +77,36 @@ export function useTerminalLiveAccessoryInputCommit({
       const sentText = ownsPendingState ? sentLiveInputTextRef.current : ''
       const decision = getTerminalLiveAccessoryBytesDecision({ ...input, heldText, sentText })
       switch (decision.kind) {
-        case 'send-now':
-          // Why: raw accessory bytes must wait behind any in-flight mirror send
-          // so composed Hangul reaches the PTY before follow-up controls.
-          return (await waitForPendingLiveInputFlush())
-            ? { kind: 'allow-raw' }
-            : { kind: 'suppress-raw' }
+        case 'send-now': {
+          // Order controls behind mirror sends; line-ending controls also end the field session so later input cannot reuse stale text.
+          const ready = terminalLiveAccessoryInputEndsLine(input.bytes)
+            ? await flushPendingLiveInputText(activeHandle)
+            : await waitForPendingLiveInputFlush()
+          return ready ? { kind: 'allow-raw' } : { kind: 'suppress-raw' }
+        }
         case 'local-edit': {
           const editedText = getTerminalLiveAccessoryLocalEditText({
             localEdit: decision.localEdit,
             fieldText: sentText + heldText
           })
-          // Why: accessory buttons do not emit native TextInput edits, so the
-          // field is edited here and the mirror diff syncs the PTY echo.
+          // Accessory buttons emit no native edits; change the field so mirror diffs synchronize PTY echo.
           setLiveInputCapture(editedText)
-          liveInputRef.current?.setNativeProps({ text: editedText })
-          applyLiveInputMirror(activeHandle, editedText)
-          return { kind: 'handled' }
+          writeTerminalLiveInputText(liveInputRef, editedText)
+          // Undefined composition enables Android’s timed heuristic hold.
+          const sent = await applyLiveInputMirror(
+            activeHandle,
+            editedText,
+            liveInputComposingRef.current
+          )
+          return sent ? { kind: 'handled' } : { kind: 'suppress-raw' }
         }
-        case 'commit-held-then-send':
-          await sendTerminalLiveControlAfterPendingFlush(
+        case 'commit-held-then-send': {
+          const sent = await sendTerminalLiveControlAfterPendingFlush(
             () => flushPendingLiveInputText(activeHandle),
             () => sendLiveTerminalInputRef.current(activeHandle, decision.bytes)
           )
-          return { kind: 'handled' }
+          return sent ? { kind: 'handled' } : { kind: 'suppress-raw' }
+        }
         default:
           decision satisfies never
           return { kind: 'handled' }
@@ -101,8 +118,10 @@ export function useTerminalLiveAccessoryInputCommit({
       clearPendingLiveInputCommit,
       flushPendingLiveInputText,
       heldLiveInputTextRef,
+      liveInputComposingRef,
       liveInputRef,
       liveInputTerminalHandles,
+      onInteraction,
       pendingLiveInputHandleRef,
       sentLiveInputTextRef,
       sendLiveTerminalInputRef,
