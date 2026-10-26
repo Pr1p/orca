@@ -1,3 +1,4 @@
+import { AiVaultChatForkSourceSchema } from '../../shared/ai-vault-chat-fork-contract'
 import { z } from 'zod'
 import {
   AI_VAULT_AGENTS,
@@ -8,9 +9,9 @@ import {
 } from '../../shared/ai-vault-types'
 import { toRuntimeExecutionHostId } from '../../shared/execution-host'
 import { listEnvironments } from '../../shared/runtime-environment-store'
-import { callRuntimeEnvironment } from '../ipc/runtime-environment-transport-routing'
+import { callRuntimeEnvironment } from '../ipc/runtime-environments/runtime-environment-transport-routing'
 import type {
-  AiVaultPrepareSessionResumeArgs,
+  AiVaultPrepareSessionResumeRequest,
   AiVaultPrepareSessionResumeResult
 } from '../../shared/ai-vault-resume-preparation'
 import type {
@@ -20,20 +21,16 @@ import type {
 import { parseAiVaultListResult } from './session-list-result-validation'
 import { parseAiVaultSessionTitlesResult } from './session-title-result-validation'
 import { isGatedOffWslHost } from '../wsl/wsl-host-gate'
-
-export type RuntimeAiVaultHostInfo = {
-  environmentId: string
-  executionHostId: `runtime:${string}`
-}
+import type { RuntimeAiVaultHostInfo } from '../ipc/ai-vault-runtime-scan'
 
 export type RuntimeAiVaultScanOptions = {
   timeoutMs?: number
 }
 
-// Why: zod strips unknown keys, so the repin home must be declared or the
-// parent would silently drop it and resume under the wrong account's home.
+// Zod strips undeclared keys; keep the repinned home so resume uses the correct account.
 const aiVaultPrepareSessionResumeResultSchema = z.object({
   useRealCodexHome: z.boolean(),
+  cliForkSource: AiVaultChatForkSourceSchema.optional(),
   substituteCodexHome: z.string().optional(),
   forkedSession: z
     .object({
@@ -51,7 +48,10 @@ export function getSavedRuntimeAiVaultHostInfos(
     .filter((environment) => !isGatedOffWslHost(environment))
     .map((environment) => ({
       environmentId: environment.id,
-      executionHostId: toRuntimeExecutionHostId(environment.id)
+      executionHostId: toRuntimeExecutionHostId(environment.id),
+      ...(environment.connectionDependency
+        ? { connectionDependency: environment.connectionDependency }
+        : {})
     }))
 }
 
@@ -72,10 +72,7 @@ export async function scanRuntimeAiVaultSessions(
       unlimited: args.unlimited,
       force: args.force,
       ...(args.afterFingerprint !== undefined ? { afterFingerprint: args.afterFingerprint } : {}),
-      // Why: cap here so the set of scanned paths is explicit on this side —
-      // the RPC schema CLAMPS to the same bound anyway (older hosts had no
-      // cap). Dropped paths only lose the older-than-recency-cap guarantee,
-      // never the recent sessions themselves.
+      // Cap paths for older hosts too; omitted scope paths lose deep-history coverage, not recent sessions.
       scopePaths: args.scopePaths?.slice(0, AI_VAULT_SCOPE_PATHS_MAX_COUNT),
       executionHostId
     },
@@ -148,7 +145,7 @@ export async function resolveRuntimeAiVaultSessionTitles(
 export async function prepareRuntimeAiVaultSessionResume(
   userDataPath: string,
   environmentId: string,
-  args: AiVaultPrepareSessionResumeArgs
+  args: AiVaultPrepareSessionResumeRequest
 ): Promise<AiVaultPrepareSessionResumeResult> {
   const response = await callRuntimeEnvironment(
     userDataPath,
@@ -161,7 +158,7 @@ export async function prepareRuntimeAiVaultSessionResume(
       response.error.code === 'method_not_found' &&
       response.error.message === 'Unknown method: aiVault.prepareSessionResume'
     ) {
-      // Why: Electron drops custom error fields; this exact message preserves the host's verdict.
+      // Electron drops custom error fields; preserve this compatibility verdict in the message.
       throw new Error('aiVault.prepareSessionResume: method_not_found')
     }
     throw new Error(response.error.message)
@@ -191,8 +188,7 @@ function retagRuntimeSession(
   session: AiVaultSession,
   executionHostId: `runtime:${string}`
 ): AiVaultSession {
-  // The paired server is the transport, but the parent owns which concrete
-  // runtime host was scanned; never trust returned host ids across the boundary.
+  // The caller selects the scanned host; a transport peer cannot supply trusted execution IDs.
   return {
     ...session,
     executionHostId,

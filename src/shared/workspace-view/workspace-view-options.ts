@@ -5,9 +5,7 @@ import type {
   WorktreeCardProperty
 } from '../ui-chrome-types'
 
-// The desktop sidebar's "Workspace options", as data. Each surface renders this list through a
-// table keyed on WorkspaceViewOptionKey, so an option added here fails to compile until it renders.
-// The labels are the English copy; the desktop localizes its own, checked equal by a test.
+// Every surface renders an exhaustive option-key table. Desktop localizes these English labels; tests check parity.
 
 export type WorkspaceGroupBy = PersistedUIState['groupBy']
 export type WorkspaceSortBy = PersistedUIState['sortBy']
@@ -84,6 +82,20 @@ export const WORKSPACE_CARD_DISPLAY_CHOICES = [
   { id: 'branch', label: 'Branch name' }
 ] as const satisfies readonly WorkspaceViewChoice<WorktreeCardProperty>[]
 
+/** Return "hover" for compact properties, otherwise the shown count or null for none. */
+export function getWorkspaceCardPropertiesValue(
+  shownProperties: readonly string[],
+  compactWorktreeCards: boolean
+): 'hover' | number | null {
+  if (compactWorktreeCards) {
+    return 'hover'
+  }
+  const count = WORKSPACE_CARD_PROPERTY_CHOICES.filter((choice) =>
+    shownProperties.includes(choice.id)
+  ).length
+  return count > 0 ? count : null
+}
+
 /** Project groups can hold folder workspaces, whose identity is a path, not a branch. */
 export function getWorkspaceCardDisplayChoiceLabel(
   choice: (typeof WORKSPACE_CARD_DISPLAY_CHOICES)[number],
@@ -135,7 +147,6 @@ export const WORKSPACE_VIEW_OPTIONS = [
 export type WorkspaceViewOption = (typeof WORKSPACE_VIEW_OPTIONS)[number]
 export type WorkspaceViewOptionKey = WorkspaceViewOption['key']
 
-/** What decides which options a surface shows right now. */
 export type WorkspaceViewOptionContext = {
   groupBy: PersistedUIState['groupBy']
   hideSleepingWorkspaces: boolean

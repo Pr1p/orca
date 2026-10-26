@@ -83,9 +83,9 @@ describe('applyDesktopViewSettings', () => {
   })
 
   it('ignores an unrecognized groupBy rather than blanking the mode', () => {
-    const next = applyDesktopViewSettings(base, { groupBy: 'mystery' as never })
+    const newerGroup: WorkspaceViewSettings = JSON.parse('{"groupBy":"mystery"}')
+    const next = applyDesktopViewSettings(base, newerGroup)
     expect(next.groupBy).toBe('repo')
-    // A sort a newer desktop adds arrives untyped over the wire.
     const newerSort: WorkspaceViewSettings = JSON.parse('{"sortBy":"bogus"}')
     expect(applyDesktopViewSettings(base, newerSort).sortBy).toBe('recent')
   })
@@ -168,5 +168,52 @@ describe('buildWorkspaceViewSettingsUpdate', () => {
 
   it('returns an empty update for an empty patch', () => {
     expect(buildWorkspaceViewSettingsUpdate({}, base)).toEqual({})
+  })
+})
+
+describe('card view settings', () => {
+  it('reads the shared card values and writes a hand-picked property set as no longer a preset', () => {
+    const next = applyDesktopViewSettings(base, {
+      projectOrderBy: 'recent',
+      worktreeCardProperties: ['pr'],
+      agentActivityDisplayMode: 'full'
+    })
+    expect([
+      next.projectOrderBy,
+      next.worktreeCardProperties,
+      next.agentActivityDisplayMode
+    ]).toEqual(['recent', ['pr'], 'full'])
+    expect(
+      buildWorkspaceViewSettingsUpdate(
+        { worktreeCardProperties: ['pr', 'host'] },
+        {
+          ...next,
+          worktreeCardProperties: ['pr', 'host']
+        }
+      )
+    ).toEqual({ worktreeCardProperties: ['pr', 'host'], _worktreeCardModeDefaulted: false })
+  })
+
+  it('writes a Card layout preset as one, and leaves the layout setting out of ui.set', () => {
+    const next = {
+      ...base,
+      worktreeCardProperties: ['status'] as const,
+      compactWorktreeCards: true
+    }
+    expect(
+      buildWorkspaceViewSettingsUpdate(
+        { worktreeCardProperties: next.worktreeCardProperties, compactWorktreeCards: true },
+        next,
+        { cardLayoutPreset: true }
+      )
+    ).toEqual({ worktreeCardProperties: ['status'], _worktreeCardModeDefaulted: true })
+  })
+
+  it('keeps the card settings a ui.get does not carry', () => {
+    const current = { ...base, compactWorktreeCards: true, newCardStyle: true }
+    expect(applyDesktopViewSettings(current, { groupBy: 'none' })).toMatchObject({
+      compactWorktreeCards: true,
+      newCardStyle: true
+    })
   })
 })

@@ -6,10 +6,6 @@ import type { operationModuleLoader } from '../operation-module-loader'
 
 const HOST = 'host-1'
 
-/**
- * The host screen's shared view settings, and the Home card's per-host stats read. Both belong to
- * the host list: one mirrors the desktop's workspace view store, the other fills the card's counts.
- */
 export function hostScreenMountAdapters(
   modules: ReturnType<typeof operationModuleLoader>
 ): Record<string, MountAdapter> {
@@ -28,7 +24,6 @@ export function hostScreenMountAdapters(
         actions = useViewSettings({
           client: context.client,
           connState: 'connected',
-          hostId: HOST,
           // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the recorder supplies only the members the hook reads.
           state: state as unknown as Parameters<typeof useViewSettings>[0]['state']
         })

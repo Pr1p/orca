@@ -7,7 +7,7 @@ import type {
 } from '../../../src/shared/workspace-view/workspace-view-options'
 import {
   buildSectionRepoMap,
-  buildSections,
+  buildMobileWorkspacePlan,
   type FilterState,
   type ProjectSectionCatalog,
   type Section,
@@ -35,7 +35,6 @@ export function useWorkspaceSections(args: {
   sections: Section[]
   rawSections: Section[]
   uniqueRepos: WorkspaceSectionRepo[]
-  /** Each row's repo by id, as the desktop's cards look theirs up for colour and icon. */
   repoById: ReadonlyMap<string, SectionRepo>
 } {
   const {
@@ -63,9 +62,9 @@ export function useWorkspaceSections(args: {
     [projectCatalog.repos, displayWorktrees]
   )
 
-  const rawSections = useMemo(
+  const plan = useMemo(
     () =>
-      buildSections(
+      buildMobileWorkspacePlan(
         displayWorktrees,
         sortMode,
         filters,
@@ -74,7 +73,7 @@ export function useWorkspaceSections(args: {
         pinnedIds,
         projectCatalog,
         workspaceStatuses,
-        collapsedGroups,
+        undefined,
         showPinnedInGroups,
         repoHostIdByRepoId
       ),
@@ -88,10 +87,11 @@ export function useWorkspaceSections(args: {
       pinnedIds,
       projectCatalog,
       workspaceStatuses,
-      collapsedGroups,
       showPinnedInGroups
     ]
   )
+
+  const rawSections = useMemo(() => plan.render(collapsedGroups), [plan, collapsedGroups])
 
   const sections = useMemo(
     () =>
