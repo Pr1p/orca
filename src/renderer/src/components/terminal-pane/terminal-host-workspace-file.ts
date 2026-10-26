@@ -1,11 +1,8 @@
 import { callHostRoute } from '@/runtime/host-route-call'
-import {
-  hostRouteForAuthority,
-  runtimeTargetEnvironmentId,
-  type RuntimeClientTarget
-} from '@/runtime/runtime-client-target'
+import { hostRouteForAuthority, runtimeTargetEnvironmentId } from '@/runtime/runtime-client-target'
+import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
 import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client-types'
-import { statRuntimePath } from '@/runtime/runtime-file-client'
+import { statRuntimePath } from '@/runtime/runtime-file-metadata-client'
 import { isRemoteRuntimeFileOperation } from '@/runtime/runtime-file-routing'
 import { userNamedFileAccess } from '@/lib/local-file-access'
 import { isPairedWebClientWindow } from '@/lib/desktop-window-chrome'
@@ -83,12 +80,7 @@ async function statClientLocalFile(
   }
 }
 
-/**
- * A clicked paired-server link outside its own workspace: the server, not this client's catalog
- * copy, says which of its workspaces holds the path, or grants it when the terminal printed it.
- * A path it disowns without a grant falls to this computer. Null when the link is not a
- * paired-server path outside the source workspace; throws when neither can open it.
- */
+/** For paired paths outside the source workspace, ask the server for an owning workspace or terminal grant; only disowned ungranted paths fall to this computer. Null when inapplicable; rejects when neither can open. */
 export async function resolveHostWorkspaceFile(
   context: RuntimeFileOperationArgs,
   absolutePath: string,

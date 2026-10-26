@@ -20,37 +20,32 @@ import { upsertAddedRepoWithProjectHostSetup } from './add-repo-store-upsert'
 import { worktreeRefreshOptions } from './add-repo-runtime-owner'
 import { addRuntimeSshRepo } from '@/runtime/runtime-ssh-target-management'
 import type { Repo } from '../../../../shared/repo-types'
+import { selectWorktreesByRepo } from '@/store/workspace-record-selectors'
 
-// Why: with a server set, the SSH target is that server's own host and only the server adds it.
+// Only the paired server can add folder projects on its own SSH host.
 async function addSshFolderProject(args: {
   connectionId: string
   runtimeEnvironmentId: string | null
   remotePath: string
   displayName: string
-}): Promise<{ repo: Repo; ownerOptions: ReturnType<typeof worktreeRefreshOptions> }> {
-  const request = {
+}): Promise<{
+  repo: Repo
+  ownerOptions: ReturnType<typeof worktreeRefreshOptions>
+}> {
+  if (!args.runtimeEnvironmentId) {
+    throw new Error(`SSH connection "${args.connectionId}" not found or not connected`)
+  }
+  const added = await addRuntimeSshRepo(args.runtimeEnvironmentId, {
     connectionId: args.connectionId,
     remotePath: args.remotePath,
-    kind: 'folder' as const,
+    kind: 'folder',
     ...(args.displayName ? { displayName: args.displayName } : {})
-  }
-  if (args.runtimeEnvironmentId) {
-    const added = await addRuntimeSshRepo(args.runtimeEnvironmentId, request)
-    return {
-      repo: upsertAddedRepoWithProjectHostSetup(added, {
-        runtimeEnvironmentId: args.runtimeEnvironmentId
-      }).repo,
-      ownerOptions: worktreeRefreshOptions(args.runtimeEnvironmentId)
-    }
-  }
-  const result = await window.api.repos.addRemote(request)
-  if ('error' in result) {
-    throw new Error(result.error)
-  }
+  })
   return {
-    repo: upsertAddedRepoWithProjectHostSetup(result.repo, { sshConnectionId: args.connectionId })
-      .repo,
-    ownerOptions: worktreeRefreshOptions(undefined, args.connectionId)
+    repo: upsertAddedRepoWithProjectHostSetup(added, {
+      runtimeEnvironmentId: args.runtimeEnvironmentId
+    }).repo,
+    ownerOptions: worktreeRefreshOptions(args.runtimeEnvironmentId)
   }
 }
 
@@ -100,24 +95,18 @@ const NonGitFolderDialog = React.memo(function NonGitFolderDialog() {
           })
           const state = useAppStore.getState()
           const hadProjectBeforeAdd = stateBeforeAdd.repos.length > 0
-          await markOnboardingProjectAdded('addedFolder')
+          const onboardingBeforeAdd = await markOnboardingProjectAdded('addedFolder')
           await state.fetchWorktrees(repo.id, ownerOptions)
-          // Why: mirror the local non-git folder flow — without this the
-          // dialog closes and the UI shows no visible change, making the
-          // add feel like a no-op. Activating the synthetic folder
-          // worktree reveals it in the sidebar and opens the workspace.
-          const folderWorktree = useAppStore
-            .getState()
-            .worktreesByRepo[repo.id]?.find(
-              (worktree) => worktree.hostId === ownerOptions.executionHostId
-            )
+          // Reveal the synthetic folder workspace so successful adds show a visible result, matching local folders.
+          const folderWorktree = selectWorktreesByRepo(useAppStore.getState())[repo.id]?.find(
+            (worktree) => worktree.hostId === ownerOptions.executionHostId
+          )
           if (folderWorktree) {
-            const onboarding = await window.api.onboarding.get().catch(() => null)
-            // Why: SSH users can hit this dialog from Add Project after
-            // dismissing onboarding, bypassing the local addNonGitFolder path.
+            // SSH adds can bypass addNonGitFolder after onboarding dismissal; resolve the default agent here too.
             const launch = resolveDismissedOnboardingFolderAgentLaunch({
+              worktreeId: folderWorktree.id,
               store: useAppStore.getState(),
-              onboarding,
+              onboarding: onboardingBeforeAdd,
               hasExistingProject: hadProjectBeforeAdd,
               executionHostId: ownerOptions.executionHostId ?? connectionId
             })
@@ -128,8 +117,7 @@ const NonGitFolderDialog = React.memo(function NonGitFolderDialog() {
             })
           }
         } catch (err) {
-          // This code path calls addRemote directly (not through the store),
-          // so the store's toast handling does not apply.
+          // Direct server calls bypass store error toasts; surface failures here.
           toast.error(
             err instanceof Error
               ? err.message

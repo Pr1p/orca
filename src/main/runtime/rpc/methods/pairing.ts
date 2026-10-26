@@ -4,7 +4,7 @@ import {
   DelegatedMobileDeviceSyncParamsSchema
 } from '../../../../shared/delegated-mobile-device-contract'
 import { RegisterDeviceKeyParamsSchema } from '../../../../shared/device-key-registration-contract'
-import { REGISTER_DEVICE_KEY_METHOD } from '../../../../shared/device-key-proof'
+import { REGISTER_DEVICE_KEY_METHOD } from '../../../../shared/device-key-capability'
 import {
   PairingGetEndpointsParamsSchema,
   PairingProvisionRelayParamsSchema
@@ -46,7 +46,7 @@ export const PAIRING_METHODS = [
   }),
   defineMethod({
     name: DELEGATED_MOBILE_DEVICE_SYNC_METHOD,
-    // Why: paired desktops call this and are never granted pairing-admin; children reach no further (rpc-caller-scope.ts).
+    // Paired desktops lack pairing-admin but must manage their children within rpc-caller-scope.
     permission: 'workspace',
     params: DelegatedMobileDeviceSyncParamsSchema,
     handler: (params, ctx) => {

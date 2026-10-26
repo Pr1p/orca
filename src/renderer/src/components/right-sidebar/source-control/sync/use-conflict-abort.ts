@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { useConfirmationDialog } from '@/components/confirmation-dialog-context'
 import { translate } from '@/i18n/i18n'
 import { getConnectionId } from '@/lib/connection-context'
-import { abortRuntimeGitMerge, abortRuntimeGitRebase } from '@/runtime/runtime-git-client'
+import { abortRuntimeGitMerge, abortRuntimeGitRebase } from '@/runtime/runtime-git-sync-client'
 import type { GitConflictOperation } from '../../../../../../shared/git-status-types'
 import type { AbortConflictOperation } from '../listing/operation-target'
 import type { SourceControlWorktreeContext } from '../listing/use-worktree-context'
@@ -12,9 +12,6 @@ import type { SourceControlWorktreeOperationState } from '../panel/use-worktree-
 import { refreshSourceControlAfterRemoteAction } from './remote-refresh'
 import type { SourceControlStatusRefresh } from './use-status-refresh'
 
-/**
- * Aborts an in-progress merge or rebase behind a destructive confirmation.
- */
 export function useSourceControlConflictAbort({
   activeRepoTarget,
   activeWorktreeId,
@@ -72,7 +69,7 @@ export function useSourceControlConflictAbort({
       setRemoteActionErrors((prev) => ({ ...prev, [activeWorktreeId]: null }))
       try {
         const context = {
-          // Why: route the abort by the repo OWNER host, not the focused runtime.
+          // Abort on the repo owner, which may differ from the focused host.
           target: requireGitOwnerTarget(activeRepoTarget),
           worktreeId: activeWorktreeId,
           worktreePath,

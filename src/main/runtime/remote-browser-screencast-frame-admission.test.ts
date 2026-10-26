@@ -28,8 +28,7 @@ function createMockWebContents() {
   return { isDestroyed: vi.fn(() => false), debugger: dbg }
 }
 
-// Why: exercises the real E2EE channel so the oracle fails if an over-limit frame ever reaches
-// the transport that answers it with close code 1013.
+// Use real E2EE admission to catch oversized frames before they close the transport with 1013.
 function createRuntimeBinarySender() {
   const serverKeys = generateKeyPair()
   const clientKeys = generateKeyPair()
@@ -44,7 +43,14 @@ function createRuntimeBinarySender() {
     serverSecretKey: serverKeys.secretKey,
     resolveAuthenticatedDevice: (token) =>
       token === 'valid-token'
-        ? { deviceId: 'device-1', deviceToken: token, scope: 'runtime', clientId: token, callerFingerprint: 'test-fingerprint', credentialRevision: 0 }
+        ? {
+            deviceId: 'device-1',
+            deviceToken: token,
+            scope: 'runtime',
+            clientId: token,
+            callerFingerprint: 'test-fingerprint',
+            credentialRevision: 0
+          }
         : null,
     onReady: vi.fn(),
     onError: onTransportError

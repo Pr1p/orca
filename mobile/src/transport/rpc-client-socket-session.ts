@@ -1,9 +1,12 @@
-import type { DirectE2EEFraming, DirectE2EEFramingPolicy } from './direct-e2ee-framing-policy'
+import type { PairedE2EEFraming } from '../../../src/shared/paired-e2ee-client-handshake'
+import type { PairedE2EEFramingPolicy } from '../../../src/shared/paired-e2ee-framing-policy'
 import { createDirectSocketFraming, type DirectSocketFraming } from './direct-socket-framing'
 import { isRpcResponse } from './rpc-response-shape'
 import { isStaleRpcSocketEvent, logRpcSocketClose } from './rpc-socket-close-evidence'
 import { describeSocketEvent, redactSocketEndpoint } from './socket-event-debug'
-import type { ConnectionLogEmitter, ConnectionState, RpcResponse } from './types'
+import { reportSocketDeadline, type SocketDeadlineKind } from './socket-deadline-suspension'
+import { startSocketDeadlineClock } from './socket-deadline-clock'
+import type { ConnectionLogEmitter, ConnectionState, RpcRequest, RpcResponse } from './types'
 
 const CONNECT_TIMEOUT_MS = 12_000
 const HANDSHAKE_TIMEOUT_MS = 5_000
@@ -13,9 +16,8 @@ const UNAUTHORIZED_CLOSE_CODE = 4001
 type SocketSessionOptions = {
   endpoint: string
   deviceToken: string
-  serverPublicKey: Uint8Array
   serverPublicKeyB64: string
-  framingPolicy: DirectE2EEFramingPolicy
+  framingPolicy: PairedE2EEFramingPolicy
   getCurrentSocket: () => WebSocket | null
   getState: () => ConnectionState
   getReconnectAttempt: () => number
@@ -37,7 +39,7 @@ export class RpcClientSocketSession {
   readonly constructedAt = Date.now()
   private framing: DirectSocketFraming | null = null
   // Why: chosen when the socket opens, so a latch recorded while it was dialing applies.
-  private framingKind: DirectE2EEFraming | null = null
+  private framingKind: PairedE2EEFraming | null = null
   private readyAccepted = false
   private authenticated = false
   private lastInboundAt: number | null = null
@@ -50,7 +52,7 @@ export class RpcClientSocketSession {
     this.armConnectTimeout()
   }
 
-  sendEncrypted(request: unknown): boolean {
+  sendEncrypted(request: RpcRequest): boolean {
     if (this.socket.readyState === WebSocket.OPEN && this.framing) {
       try {
         if (this.framing.sendText(JSON.stringify(request))) {
@@ -151,8 +153,7 @@ export class RpcClientSocketSession {
     }
   }
 
-  // Why: hosts that predate direct v2 refuse the v2 hello with 4001 before any ready;
-  // that is an auth verdict only for a host already proven to speak v2.
+  // Before v2 ready, old hosts answer 4001 to an unsupported hello; treat it as auth failure only after prior v2 proof.
   private classifyClose(closeCode: number | undefined): number | undefined {
     if (this.framingKind !== 'v2' || this.readyAccepted || closeCode !== UNAUTHORIZED_CLOSE_CODE) {
       return closeCode
@@ -171,7 +172,6 @@ export class RpcClientSocketSession {
       framing: this.framingKind,
       mayUseLegacy: policy.mayUseLegacy,
       socket: this.socket,
-      serverPublicKey: this.options.serverPublicKey,
       serverPublicKeyB64: this.options.serverPublicKeyB64,
       deviceToken: this.options.deviceToken,
       emitLog: this.options.emitLog,
@@ -234,44 +234,45 @@ export class RpcClientSocketSession {
   }
 
   private armConnectTimeout(): void {
-    this.connectTimer = setTimeout(() => {
-      this.connectTimer = null
-      if (
-        this.options.getCurrentSocket() === this.socket &&
-        this.socket.readyState === WEBSOCKET_CONNECTING_STATE
-      ) {
-        console.log('[net] connect-timeout fired (onopen never arrived)', {
-          attempt: this.options.getReconnectAttempt(),
-          timeoutMs: CONNECT_TIMEOUT_MS
-        })
-        this.options.emitLog(
-          'error',
-          'WebSocket connect timeout',
-          `No TCP/WS handshake within ${CONNECT_TIMEOUT_MS / 1000}s — endpoint unreachable?`,
-          { code: 'connect-timeout' }
-        )
-        this.options.onForcedClose(this)
-      }
-    }, CONNECT_TIMEOUT_MS)
+    this.armSocketDeadline('connect', CONNECT_TIMEOUT_MS)
   }
 
   private armHandshakeTimeout(): void {
-    this.handshakeTimer = setTimeout(() => {
-      this.handshakeTimer = null
-      if (this.options.getCurrentSocket() !== this.socket || this.authenticated) {
+    this.armSocketDeadline('handshake', HANDSHAKE_TIMEOUT_MS)
+  }
+
+  private armSocketDeadline(kind: SocketDeadlineKind, timeoutMs: number): void {
+    const elapsedMs = startSocketDeadlineClock()
+    const timer = setTimeout(() => {
+      if (kind === 'connect') {
+        this.connectTimer = null
+      } else {
+        this.handshakeTimer = null
+      }
+      if (
+        this.options.getCurrentSocket() !== this.socket ||
+        (kind === 'connect'
+          ? this.socket.readyState !== WEBSOCKET_CONNECTING_STATE
+          : this.authenticated)
+      ) {
         return
       }
-      console.log('[net] handshake-timeout fired (e2ee_authenticated never arrived)', {
-        timeoutMs: HANDSHAKE_TIMEOUT_MS
-      })
-      this.options.emitLog(
-        'error',
-        'Handshake timeout',
-        `No e2ee_ready/e2ee_authenticated within ${HANDSHAKE_TIMEOUT_MS / 1000}s`,
-        { code: 'handshake-timeout' }
+      reportSocketDeadline(
+        {
+          kind,
+          elapsedMs: elapsedMs(),
+          timeoutMs,
+          ...(kind === 'connect' ? { attempt: this.options.getReconnectAttempt() } : {})
+        },
+        this.options.emitLog,
+        () => this.options.onForcedClose(this)
       )
-      this.options.onForcedClose(this)
-    }, HANDSHAKE_TIMEOUT_MS)
+    }, timeoutMs)
+    if (kind === 'connect') {
+      this.connectTimer = timer
+    } else {
+      this.handshakeTimer = timer
+    }
   }
 
   private clearConnectTimer(): void {

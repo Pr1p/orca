@@ -7,9 +7,7 @@ import {
 } from '../../runtime/runtime-compatibility-test-fixture'
 import { clearRuntimeCompatibilityCacheForTests } from '../../runtime/runtime-rpc-client'
 
-// Shared harness for the repo-slice runtime-routing suite: sample repos, IPC/runtime
-// mocks, and the window stub reset between tests. Extracted to keep the test file itself
-// under the max-lines limit.
+// Repo-routing fixtures centralize sample catalogs, transport mocks and window reset.
 
 export const localRepo: Repo = {
   id: 'local-repo',
@@ -40,7 +38,6 @@ export const reposList: Mock = vi.fn()
 export const reposAdd: Mock = vi.fn()
 export const reposPickFolder: Mock = vi.fn()
 export const reposClone: Mock = vi.fn()
-export const reposCloneRemote: Mock = vi.fn()
 export const reposRemoveForHost: Mock = vi.fn()
 export const reposUpdate: Mock = vi.fn()
 export const reposReorder: Mock = vi.fn()
@@ -72,7 +69,6 @@ export function installReposRuntimeRoutingHarness(): void {
     reposAdd.mockReset()
     reposPickFolder.mockReset()
     reposClone.mockReset()
-    reposCloneRemote.mockReset()
     reposRemoveForHost.mockReset()
     reposUpdate.mockReset()
     reposReorder.mockReset()
@@ -101,7 +97,6 @@ export function installReposRuntimeRoutingHarness(): void {
           list: reposList,
           add: reposAdd,
           clone: reposClone,
-          cloneRemote: reposCloneRemote,
           pickFolder: reposPickFolder,
           removeForHost: reposRemoveForHost,
           update: reposUpdate,

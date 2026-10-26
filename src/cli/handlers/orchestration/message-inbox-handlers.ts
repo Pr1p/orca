@@ -3,6 +3,7 @@ import { printResult } from '../../format'
 import {
   getOptionalPositiveIntegerFlag,
   getOptionalStringFlag,
+  getPresentStringFlag,
   getRequiredStringFlag
 } from '../../flags'
 import {
@@ -40,7 +41,7 @@ export const ORCHESTRATION_INBOX_HANDLERS: Record<string, CommandHandler> = {
   'orchestration inbox': async ({ flags, client, cwd, json }) => {
     const full = flags.has('full')
     const run = getOptionalStringFlag(flags, 'run')
-    const explicitTerminal = getOptionalStringFlag(flags, 'terminal')
+    const explicitTerminal = getPresentStringFlag(flags, 'terminal')
     const terminal = run
       ? await resolveOrchestrationTerminalHandle(flags, cwd, client, 'terminal')
       : explicitTerminal
@@ -65,7 +66,6 @@ export const ORCHESTRATION_INBOX_HANDLERS: Record<string, CommandHandler> = {
         }
         return 'No messages.'
       }
-      // Why: default output omits body/payload for at-a-glance sweeps; --full prints them for auditing.
       return value.messages
         .map((message) => {
           const head = `${message.id}${formatMessageReadOnlyTag(message)} ${message.from_handle} -> ${message.to_handle ?? '?'}: "${message.subject}"`

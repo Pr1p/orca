@@ -14,7 +14,7 @@ import {
 } from '../../../../../../shared/protocol-version'
 import { toRuntimeWorktreeSelector } from '../../../../runtime/runtime-worktree-selector'
 import { translate } from '@/i18n/i18n'
-import type { RuntimeClientTarget } from '../../../../runtime/runtime-client-target'
+import type { RuntimeClientTarget } from '../../../../../../shared/runtime-client-target'
 import type { WorktreeMeta } from '../../../../../../shared/worktree/meta-types'
 import type { ExecutionHostId } from '../../../../../../shared/execution-host'
 import { encodePushTargetClearForRuntimeRpc } from './hosted-review-link-mutation'
@@ -96,9 +96,7 @@ async function persistWorktreeMetaUntracked(
     return
   }
   await assertWorkspaceAttachmentWriteCapability(target, updates)
-  // Why: `worktree.set` parses in strip mode, so an older runtime drops the key
-  // and applies the rest. Both gates key off presence, not value — a dropped
-  // *clear* strands a stale link that the Issue row then hides.
+  // Old worktree.set strips unknown keys, including clears; gate by presence so dropped fields cannot strand hidden review links.
   if (
     target.kind === 'environment' &&
     ('linkedWorkItem' in updates || 'linkedTaskSourceContext' in updates)

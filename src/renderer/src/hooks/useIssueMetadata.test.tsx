@@ -26,9 +26,7 @@ vi.mock('@/runtime/runtime-linear-project-client', () => ({
   linearTeamMembers: linearMocks.linearTeamMembers
 }))
 
-vi.mock('@/runtime/runtime-rpc-client', () => ({
-  callRuntimeRpc: runtimeMocks.callRuntimeRpc
-}))
+vi.mock('@/runtime/runtime-rpc-client', () => ({ callRuntimeRpc: runtimeMocks.callRuntimeRpc }))
 
 const roots: Root[] = []
 
@@ -195,7 +193,6 @@ describe('useIssueMetadata hooks', () => {
 
     function StatesProbe(): null {
       renders += 1
-      // Fresh settings object each render — the storm trigger.
       const metadata = useTeamStates('team-1', { kind: 'local' }, 'ws-1')
       states = metadata.data
       return null

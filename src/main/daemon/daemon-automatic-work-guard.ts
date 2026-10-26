@@ -9,6 +9,7 @@ import { AutomaticWorkRunMarker } from './automatic-work-run-marker-store'
 import type { AutomaticWorkRequestType } from './daemon-automatic-work-protocol'
 import { DaemonProcessGrowthMonitor } from './daemon-process-growth-monitor'
 import { HostTerminalLedger, resolveMaxHostTerminals } from './host-terminal-ledger'
+import { LegacyRestoreRecords, legacyRestoreRecordsPathFor } from './legacy-restore-records'
 import { TerminalSpawnGate, type TerminalSpawnAdmissionMode } from './terminal-spawn-gate'
 
 type DaemonAutomaticWorkGuardOptions = {
@@ -19,22 +20,22 @@ type DaemonAutomaticWorkGuardOptions = {
   log: { log: (event: string, details: Record<string, unknown>) => void }
   listSessions: () => readonly { sessionId: string; pid: number | null }[]
   ownsEndpoint: () => boolean
-  /** Test seam for the growth monitor's process table. */
   monitor?: DaemonProcessGrowthMonitor
 }
 
-/**
- * Everything that decides whether the daemon may start automatic work: the fork gate,
- * the same-boot crash marker, and the process-growth breaker that pauses it.
- */
 export class DaemonAutomaticWorkGuard {
   readonly gate: TerminalSpawnGate
   private readonly marker: AutomaticWorkRunMarker
+  private readonly legacyRestores: LegacyRestoreRecords
   private readonly monitor: DaemonProcessGrowthMonitor
   private pressurePausedSince: number | null = null
 
   constructor(private readonly options: DaemonAutomaticWorkGuardOptions) {
     this.marker = new AutomaticWorkRunMarker(options.markerPath, options.log, options.ownsEndpoint)
+    this.legacyRestores = new LegacyRestoreRecords(
+      options.markerPath ? legacyRestoreRecordsPathFor(options.markerPath) : undefined,
+      options.log
+    )
     this.monitor =
       options.monitor ??
       new DaemonProcessGrowthMonitor({
@@ -50,6 +51,7 @@ export class DaemonAutomaticWorkGuard {
       pressure: () => this.monitor.level,
       automaticWorkMode: () => this.automaticWorkMode(),
       armAutomaticWork: () => this.marker.arm(),
+      legacyRestores: this.legacyRestores,
       hostTerminals: new HostTerminalLedger({
         dir: options.hostTerminalLedgerDir ?? null,
         maxTerminals: resolveMaxHostTerminals(),
@@ -65,29 +67,37 @@ export class DaemonAutomaticWorkGuard {
     this.gate.startHostTerminals()
   }
 
-  /** Called after every session was disposed on an orderly shutdown. */
+  /** Stop only after orderly disposal of all sessions. */
   stop(): void {
     this.monitor.stop()
     this.gate.stopHostTerminals()
     this.marker.markCleanExit()
   }
 
-  /** An exit on purpose that skips teardown (macOS login-session retirement). */
+  /** Record intentional exits that bypass session teardown, such as macOS login retirement. */
   recordOrderlyExit(): void {
     this.monitor.stop()
     this.gate.stopHostTerminals()
     this.marker.markCleanExit()
   }
 
+  /** Record external stop signals before teardown starts. */
+  recordStopRequested(): void {
+    this.marker.recordStopRequested()
+  }
+
   status(): AutomaticWorkStatus {
-    return { admission: this.options.mode, mode: this.automaticWorkMode() }
+    return {
+      admission: this.options.mode,
+      mode: this.automaticWorkMode(),
+      legacyRestores: this.legacyRestores.list()
+    }
   }
 
   handle(type: AutomaticWorkRequestType): AutomaticWorkStatus | AutomaticWorkResumeResult {
     return type === 'resumeAutomaticWork' ? this.resume() : this.status()
   }
 
-  /** The operator's resume: clears a crash or pressure pause and lets waiting restores through. */
   resume(): AutomaticWorkResumeResult {
     const before = this.automaticWorkMode()
     this.marker.resume()
@@ -110,9 +120,7 @@ export class DaemonAutomaticWorkGuard {
   }
 
   private onTrip(trips: readonly ProcessGrowthTrip[]): void {
-    // Why pause, not kill: running agents keep running and only new automatic work stops
-    // (owner decision Q3). Why in memory for this run: an observe-only host must not leave
-    // one behind for when it starts enforcing, and a resume or restart clears it.
+    // Pause new automatic work without killing agents; keep pressure pauses in memory for this run.
     if (this.options.mode === 'enforce') {
       this.pressurePausedSince ??= Date.now()
     }

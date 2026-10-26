@@ -10,18 +10,20 @@ const LOCAL_HOST_LABEL = getExecutionHostLabel('local')
 
 describe('getProviderAccountScope', () => {
   it('describes provider accounts as client-owned without an active runtime', () => {
-    expect(getProviderAccountScope({ activeRuntimeEnvironmentId: null })).toEqual({
-      label: LOCAL_HOST_LABEL,
-      description:
-        'Credentials and account checks for this provider are owned by this desktop client. To use a server, change Settings > Remote Orca Servers > Advanced > Default host for new projects.'
-    })
+    for (const activeRuntimeEnvironmentId of [null, '   ']) {
+      expect(getProviderAccountScope({ activeRuntimeEnvironmentId })).toEqual({
+        label: LOCAL_HOST_LABEL,
+        description:
+          'Credentials and account checks for this provider are owned by this desktop client. To use a server, change Settings > Remote Orca Servers > New projects open on.'
+      })
+    }
   })
 
   it('describes provider accounts as remote-server-owned with an active runtime', () => {
     expect(getProviderAccountScope({ activeRuntimeEnvironmentId: ' env-1 ' })).toEqual({
       label: 'Remote server: env-1',
       description:
-        'Credentials and account checks for this provider are owned by this remote server. To use another host, change Settings > Remote Orca Servers > Advanced > Default host for new projects.'
+        'Credentials and account checks for this provider are owned by this remote server. To use another host, change Settings > Remote Orca Servers > New projects open on.'
     })
   })
 

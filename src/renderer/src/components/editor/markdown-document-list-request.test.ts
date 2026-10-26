@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { MarkdownDocument } from '../../../../shared/filesystem-entry-types'
-import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client'
+import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client-types'
 import {
   getMarkdownDocumentListRequestKey,
   requestSharedMarkdownDocumentList
@@ -149,8 +149,7 @@ describe('shared Markdown document list requests', () => {
         load
       )
       now.mockReturnValue(31_001)
-      // A request for a different route sweeps the expired entry so the map
-      // does not pin the abandoned promise for the renderer's lifetime.
+      // A different route must release expired entries, including abandoned promises.
       await expect(
         requestSharedMarkdownDocumentList(context(), '/other-route', {}, load)
       ).resolves.toEqual([])

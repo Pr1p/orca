@@ -17,7 +17,6 @@ const {
   glabExecFileAsyncMock,
   gitExecFileAsyncMock,
   getUpstreamStatusMock,
-  getSshGitProviderMock,
   getEnterpriseGitHubRepoSlugMock
 } = vi.hoisted(() => ({
   createGitHubPullRequestMock: vi.fn(),
@@ -36,7 +35,6 @@ const {
   glabExecFileAsyncMock: vi.fn(),
   gitExecFileAsyncMock: vi.fn(),
   getUpstreamStatusMock: vi.fn(),
-  getSshGitProviderMock: vi.fn(),
   getEnterpriseGitHubRepoSlugMock: vi.fn()
 }))
 
@@ -107,10 +105,6 @@ vi.mock('../git/upstream', () => ({
   getUpstreamStatus: getUpstreamStatusMock
 }))
 
-vi.mock('../providers/ssh-git-dispatch', () => ({
-  getSshGitProvider: getSshGitProviderMock
-}))
-
 vi.mock('./hosted-review', () => ({
   getHostedReviewForBranch: getHostedReviewForBranchMock
 }))
@@ -119,8 +113,7 @@ import { createHostedReview } from './hosted-review-creation'
 
 import { _resetOriginGitHubApiRepositoryCache } from '../github/github-api-repository'
 
-// The origin-repository cache is module-level state; reset it so slugs
-// resolved by one test cannot leak into the next.
+// Isolate module-level repository identities between tests.
 beforeEach(() => {
   _resetOriginGitHubApiRepositoryCache()
 })
@@ -143,7 +136,6 @@ function resetMocks(): void {
     glabExecFileAsyncMock,
     gitExecFileAsyncMock,
     getUpstreamStatusMock,
-    getSshGitProviderMock,
     getEnterpriseGitHubRepoSlugMock
   ]) {
     mock.mockReset()
@@ -159,12 +151,9 @@ function mockGitHubProvider(): void {
   getEnterpriseGitHubRepoSlugMock.mockResolvedValue(null)
 }
 
-// GHES: github.com-only slug parsing misses the custom host, so the enterprise
-// resolver claims the repo and reports the host for the gh auth probe (#8312).
+// #8312: authenticated GHES detection supplies its custom host.
 function mockGitHubEnterpriseProvider(): void {
   getProjectSlugMock.mockResolvedValue(null)
-  // Why: getRepoSlug resolves hosted identities itself now — a GHES remote
-  // comes back host-qualified instead of null + separate enterprise fallback.
   getRepoSlugMock.mockResolvedValue({
     owner: 'acme',
     repo: 'orca',
@@ -173,7 +162,6 @@ function mockGitHubEnterpriseProvider(): void {
   getBitbucketRepoSlugMock.mockResolvedValue(null)
   getAzureDevOpsRepoSlugMock.mockResolvedValue(null)
   getGiteaRepoSlugMock.mockResolvedValue(null)
-  // The auth gate still keys off the enterprise resolver (authed-GHES signal).
   getEnterpriseGitHubRepoSlugMock.mockResolvedValue({
     owner: 'acme',
     repo: 'orca',
@@ -331,7 +319,6 @@ describe('createHostedReview', () => {
   })
 
   it('blocks creation with actionable copy when the submitted base is local-only', async () => {
-    // A bulk show-ref probe exits 1 when none of its requested refs exist.
     gitExecFileAsyncMock.mockImplementation(async (args: string[]) => {
       if (args[0] === 'rev-parse') {
         return { stdout: 'feature\n', stderr: '' }
@@ -423,8 +410,7 @@ describe('createHostedReview', () => {
         repoPath: '/repo',
         branch: 'feature',
         localGitExecOptions: { wslDistro: 'Ubuntu' },
-        // Why: a stale no-review answer here would leave Create enabled after a
-        // review was opened outside Orca, so eligibility takes the fast tier.
+        // Use active pacing so reviews opened outside Orca promptly disable Create.
         active: true
       })
     )
@@ -460,8 +446,6 @@ describe('createHostedReview', () => {
       url: 'https://github.com/acme/orca/pull/12'
     })
 
-    // Detection already confirmed gh is authed to the GHES host, so the auth
-    // gate must not fire a second (rate-limited) gh probe.
     expect(ghExecFileAsyncMock).not.toHaveBeenCalled()
     expect(createGitHubPullRequestMock).toHaveBeenCalled()
     expect(createGiteaPullRequestMock).not.toHaveBeenCalled()

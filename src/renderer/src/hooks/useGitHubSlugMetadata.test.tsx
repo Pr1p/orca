@@ -14,9 +14,7 @@ const apiMocks = vi.hoisted(() => ({
   listAssignableUsersBySlug: vi.fn()
 }))
 
-vi.mock('@/runtime/runtime-rpc-client', () => ({
-  callRuntimeRpc: vi.fn()
-}))
+vi.mock('@/runtime/runtime-rpc-client', () => ({ callRuntimeRpc: vi.fn() }))
 
 const roots: Root[] = []
 
@@ -118,9 +116,7 @@ describe('useGitHubSlugMetadata', () => {
   })
 
   it('does not re-issue a failed label fetch when a fresh settings object re-renders', async () => {
-    // Regression: with an unreachable provider, the failure setState re-rendered
-    // the consumer, the fresh settings identity re-armed the effect, and the hook
-    // re-issued the fetch each settlement — a render-paced request storm.
+    // Fresh settings identities previously rearmed fetch after each failure settlement, creating a render-paced request storm.
     let renders = 0
     let error: string | null = null
     apiMocks.listLabelsBySlug.mockRejectedValue(new Error('Could not connect'))
@@ -134,7 +130,6 @@ describe('useGitHubSlugMetadata', () => {
 
     renderProbe(<FailingLabelsProbe />)
     await flushEffects()
-    // Extra settlement rounds give a storm the chance to manifest.
     await flushEffects()
     await flushEffects()
 
