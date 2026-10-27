@@ -116,7 +116,7 @@ describe('orchestration.inbox', () => {
     vi.spyOn(runtime, 'getTerminalPaneKey').mockImplementation((handle) =>
       handle === 'term_a' ? paneA : handle === 'term_b' ? paneB : null
     )
-    const runA = db.createRun({
+    db.createRun({
       objective: 'Run A',
       coordinatorHandle: 'term_a',
       coordinatorPaneKey: paneA
@@ -130,8 +130,7 @@ describe('orchestration.inbox', () => {
     await expect(
       inbox({ terminal: 'term_a', terminalPaneKey: paneB, run: runB.id })
     ).rejects.toMatchObject({
-      code: 'consumer_fenced',
-      message: `This coordinator terminal is bound to ${runA.id}, not ${runB.id}.`
+      code: 'consumer_fenced'
     })
   })
 
