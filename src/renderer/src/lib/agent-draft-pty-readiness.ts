@@ -1,4 +1,3 @@
-import type { GlobalSettings } from '../../../shared/global-settings-types'
 import { isExpectedAgentProcess } from '../../../shared/agent-process-recognition'
 import { useAppStore } from '@/store'
 import { inspectRuntimeTerminalProcess } from '@/runtime/runtime-terminal-inspection'
@@ -9,14 +8,13 @@ export function waitForAgentDraftInputReadyOnTab(args: {
   spawnTimeoutMs: number
   readinessTimeoutMs: number
   readySignal: Parameters<typeof waitForAgentDraftInputReady>[2]
-  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined
+  launchPty?: Promise<string | null>
 }): Promise<{ ptyId: string; ready: boolean } | null> {
   return new Promise((resolve) => {
-    let selectedPtyId: string | null = null
+    const readinessByPtyId = new Map<string, Promise<boolean>>()
     let settled = false
     let spawnTimer: number | null = null
     let unsubscribeStore: (() => void) | null = null
-
     const finish = (result: { ptyId: string; ready: boolean } | null): void => {
       if (settled) {
         return
@@ -28,31 +26,45 @@ export function waitForAgentDraftInputReadyOnTab(args: {
       unsubscribeStore?.()
       resolve(result)
     }
-    const bindPty = (ptyId: string): void => {
-      if (selectedPtyId || settled) {
+    const watchPty = (ptyId: string): Promise<boolean> => {
+      const existing = readinessByPtyId.get(ptyId)
+      if (existing) {
+        return existing
+      }
+      const readiness = waitForAgentDraftInputReady(
+        ptyId,
+        args.readinessTimeoutMs,
+        args.readySignal
+      )
+      readinessByPtyId.set(ptyId, readiness)
+      return readiness
+    }
+    const deliverPty = (ptyId: string): void => {
+      if (settled) {
         return
       }
-      selectedPtyId = ptyId
       if (spawnTimer !== null) {
         window.clearTimeout(spawnTimer)
       }
       unsubscribeStore?.()
-      // Why: Zustand subscribers run inside updateTabPtyId, before the transport drain.
-      void waitForAgentDraftInputReady(
-        ptyId,
-        args.readinessTimeoutMs,
-        args.readySignal,
-        args.settings
-      ).then((ready) => finish({ ptyId, ready }))
+      void watchPty(ptyId).then((ready) => finish({ ptyId, ready }))
     }
     const bindFromState = (state: ReturnType<typeof useAppStore.getState>): void => {
-      const ptyId = state.ptyIdsByTabId[args.tabId]?.[0]
-      if (ptyId) {
-        bindPty(ptyId)
+      const ptyIds = state.ptyIdsByTabId[args.tabId] ?? []
+      if (args.launchPty) {
+        // Each pane's readiness attaches before its primary handler drains startup bytes.
+        for (const ptyId of ptyIds) {
+          watchPty(ptyId)
+        }
+      } else if (ptyIds[0]) {
+        deliverPty(ptyIds[0])
       }
     }
-
-    spawnTimer = window.setTimeout(() => finish(null), args.spawnTimeoutMs)
+    if (args.launchPty) {
+      void args.launchPty.then((ptyId) => (ptyId ? deliverPty(ptyId) : finish(null)))
+    } else {
+      spawnTimer = window.setTimeout(() => finish(null), args.spawnTimeoutMs)
+    }
     unsubscribeStore = useAppStore.subscribe(bindFromState)
     bindFromState(useAppStore.getState())
   })
@@ -61,14 +73,13 @@ export function waitForAgentDraftInputReadyOnTab(args: {
 export async function waitForExpectedAgentOnPty(
   ptyId: string,
   expectedProcess: string,
-  timeoutMs: number,
-  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined
+  timeoutMs: number
 ): Promise<boolean> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     try {
       const process = await withDeadline(
-        inspectRuntimeTerminalProcess(settings, ptyId),
+        inspectRuntimeTerminalProcess(ptyId),
         Math.max(0, deadline - Date.now())
       )
       if (!process) {
