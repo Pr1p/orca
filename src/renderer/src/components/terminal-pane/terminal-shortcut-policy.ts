@@ -7,6 +7,11 @@ import {
   type TerminalShortcutPolicy
 } from '../../../../shared/keybindings'
 import {
+  encodeModifyOtherKeysEnter,
+  encodeTerminalShiftEnter,
+  TERMINAL_CTRL_BACKSPACE_INPUT
+} from '../../../../shared/terminal-modified-enter-encoding'
+import {
   TERMINAL_CTRL_ENTER_CSI_U_INPUT,
   TERMINAL_ENTER_INPUT
 } from '../../../../shared/terminal-ctrl-enter-input'
@@ -68,14 +73,6 @@ export type TerminalShortcutAction =
     }
   | { type: 'trackNativeOptionDeadKey' }
   | { type: 'switchInputSource' }
-
-/** ESC CR depends on Pi’s private Kitty-query result, which panes cannot observe. Armed modifyOtherKeys uses CSI 27;mod;13~ consistently in either state (STA-7701). */
-function encodeModifyOtherKeysEnter(
-  getModifyOtherKeys: (() => number) | undefined,
-  modifier: 2 | 3
-): string | null {
-  return (getModifyOtherKeys?.() ?? 0) > 0 ? `\x1b[27;${modifier};13~` : null
-}
 
 /** Resolve platform-aware Orca shortcuts and byte fallbacks before xterm encoding. */
 export function resolveTerminalShortcutAction(
@@ -182,12 +179,12 @@ export function resolveTerminalShortcutAction(
     const hasTrustedWindowsCsiU = windowsHost && getWindowsShiftEnterEncoding?.() === 'csi-u'
     // Why: CSI-u is application input, not universal; without trusted Windows evidence, require active KKP negotiation.
     const canSendCsiU = hasTrustedWindowsCsiU || (getKittyKeyboardFlagsActivePane?.() ?? 0) > 0
-    if (canSendCsiU) {
-      return { type: 'sendInput', data: '\x1b[13;2u' }
-    }
     return {
       type: 'sendInput',
-      data: encodeModifyOtherKeysEnter(getModifyOtherKeysActivePane, 2) ?? '\x1b\r'
+      data: encodeTerminalShiftEnter({
+        canSendCsiU,
+        modifyOtherKeys: getModifyOtherKeysActivePane?.() ?? 0
+      })
     }
   }
 
@@ -200,7 +197,7 @@ export function resolveTerminalShortcutAction(
     (getKittyKeyboardFlagsActivePane?.() ?? 0) === 0
   ) {
     // Why: without modifyOtherKeys, xterm's own `ESC CR` stays the Alt+Enter encoding.
-    const data = encodeModifyOtherKeysEnter(getModifyOtherKeysActivePane, 3)
+    const data = encodeModifyOtherKeysEnter(getModifyOtherKeysActivePane?.() ?? 0, 3)
     if (data) {
       return { type: 'sendInput', data }
     }
@@ -232,7 +229,7 @@ export function resolveTerminalShortcutAction(
     !event.shiftKey &&
     event.key === 'Backspace'
   ) {
-    return { type: 'sendInput', data: '\x17' }
+    return { type: 'sendInput', data: TERMINAL_CTRL_BACKSPACE_INPUT }
   }
 
   if (isMac && event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
