@@ -149,13 +149,18 @@ export function onAgentsRefreshedOnHost(listener: () => void): () => void {
   return () => agentRefreshListeners.delete(listener)
 }
 
-export async function refreshAgentsOnHost(host: AgentDetectionHost): Promise<RefreshAgentsResult> {
+export async function refreshAgentsOnHost(
+  host: AgentDetectionHost,
+  options?: InstalledAgentDetectionOptions
+): Promise<RefreshAgentsResult> {
   if (host.kind === 'ssh') {
     throw new SshHostNotServedError(host.connectionId)
   }
   const wsl = getPreflightWslTarget(host.context)
   const refresh = async (): Promise<RefreshAgentsResult> => {
-    const result = await refreshShellPathAndDetectAgents(host.context)
+    const result = await (options
+      ? refreshShellPathAndDetectAgents(host.context, options)
+      : refreshShellPathAndDetectAgents(host.context))
     if (!wsl) {
       await captureHostShellEnvironment()
     }
