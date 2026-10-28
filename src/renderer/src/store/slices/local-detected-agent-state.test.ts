@@ -151,7 +151,65 @@ describe('local detected agent context lifecycle', () => {
       'claude',
       'kiro'
     ])
+    expect(store.getState().isDetectingLocalAgentsByContext).toEqual({})
+    expect(store.getState().isRefreshingLocalAgentsByContext).toEqual({})
   })
+
+  it.each([
+    { refreshFails: false, detectFinishesFirst: false },
+    { refreshFails: false, detectFinishesFirst: true },
+    { refreshFails: true, detectFinishesFirst: false },
+    { refreshFails: true, detectFinishesFirst: true }
+  ])(
+    'settles both loading modes when a full refresh supersedes detects ($refreshFails, $detectFinishesFirst)',
+    async ({ refreshFails, detectFinishesFirst }) => {
+      const store = createTestStore([])
+      const enabledDetection = Promise.withResolvers<string[]>()
+      const fullDetection = Promise.withResolvers<string[]>()
+      const fullRefresh = Promise.withResolvers<{ agents: string[] }>()
+      detectAgents
+        .mockReturnValueOnce(enabledDetection.promise)
+        .mockReturnValueOnce(fullDetection.promise)
+      refreshAgents.mockReturnValueOnce(fullRefresh.promise)
+      const enabled = store.getState().ensureDetectedAgents()
+      const full = store.getState().ensureAllDetectedAgents()
+      const refreshed = store.getState().refreshAllDetectedAgents()
+
+      expect(store.getState().isDetectingAgents).toBe(false)
+      expect(store.getState().isDetectingLocalAgentsByContext).toEqual({})
+      expect(store.getState().isRefreshingLocalAgentsByContext).toEqual({
+        host: true,
+        'host\u0000all-agents': true
+      })
+      const finishDetections = async () => {
+        enabledDetection.resolve(['claude'])
+        fullDetection.resolve(['claude', 'kiro'])
+        await Promise.all([enabled, full])
+      }
+      if (detectFinishesFirst) {
+        await finishDetections()
+        expect(store.getState().isRefreshingAgents).toBe(true)
+      }
+      if (refreshFails) {
+        fullRefresh.reject(new Error('shell unavailable'))
+      } else {
+        fullRefresh.resolve({ agents: ['codex', 'kiro'] })
+      }
+      await refreshed
+      if (!detectFinishesFirst) {
+        await finishDetections()
+      }
+
+      expect(store.getState().localDetectedAgentIdsByContext).toEqual({
+        host: refreshFails ? [] : ['codex', 'kiro'],
+        'host\u0000all-agents': refreshFails ? [] : ['codex', 'kiro']
+      })
+      expect(store.getState().isDetectingLocalAgentsByContext).toEqual({})
+      expect(store.getState().isRefreshingLocalAgentsByContext).toEqual({})
+      expect(store.getState().isDetectingAgents).toBe(false)
+      expect(store.getState().isRefreshingAgents).toBe(false)
+    }
+  )
 
   it('publishes a complete refresh to automatic readers without letting their late probe overwrite it', async () => {
     const store = createTestStore([])
@@ -291,6 +349,37 @@ describe('local detected agent context lifecycle', () => {
     store.setState({ projects: [] })
     await store.getState().refreshDetectedAgents()
     expect(readNativeDetectedAgents(store.getState())).toEqual(['codex'])
+  })
+
+  it('reacquires requested native inventory across preference changes and fences retired native probes', async () => {
+    const store = createTestStore([makeRepo('repo-1')])
+    const firstDetection = Promise.withResolvers<string[]>()
+    const disabledDetection = Promise.withResolvers<string[]>()
+    const reenabledDetection = Promise.withResolvers<string[]>()
+    detectAgents
+      .mockReturnValueOnce(firstDetection.promise)
+      .mockReturnValueOnce(disabledDetection.promise)
+      .mockReturnValueOnce(reenabledDetection.promise)
+    const first = store.getState().ensureNativeDetectedAgents()
+    const settings = store.getState().settings!
+
+    store.setState({ settings: { ...settings, disabledTuiAgents: ['pi'] } })
+    store.setState({ settings: { ...settings, disabledTuiAgents: [] } })
+    expect(detectAgents.mock.calls).toEqual([
+      [{ enabledOnly: true }],
+      [{ enabledOnly: true }],
+      [{ enabledOnly: true }]
+    ])
+    reenabledDetection.resolve(['pi', 'codex'])
+    await vi.waitFor(() =>
+      expect(readNativeDetectedAgents(store.getState())).toEqual(['pi', 'codex'])
+    )
+    disabledDetection.resolve(['codex'])
+    firstDetection.resolve(['claude'])
+    await first
+    expect(readNativeDetectedAgents(store.getState())).toEqual(['pi', 'codex'])
+    expect(store.getState().detectedAgentIds).toBeNull()
+    expect(store.getState().isDetectingLocalAgentsByContext).toEqual({})
   })
 
   it('evicts removed project contexts without retaining settled loading entries', async () => {

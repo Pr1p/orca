@@ -19,6 +19,7 @@ import type { LocalDetectedAgentState } from './local-detected-agent-store-state
 type LocalDetectedAgentStateCreator = StateCreator<AppState, [], [], LocalDetectedAgentState>
 
 export const createLocalDetectedAgentState: LocalDetectedAgentStateCreator = (set, get, store) => {
+  let nativeInventoryRequested = false
   const lifecycle: LocalAgentInventoryLifecycle = {
     detectPromises: new Map(),
     refreshPromises: new Map(),
@@ -40,8 +41,10 @@ export const createLocalDetectedAgentState: LocalDetectedAgentStateCreator = (se
         lifecycle.failedDetectContextKeys,
         lifecycle.keptThroughFailure
       ),
-    ensureNativeDetectedAgents: (): Promise<TuiAgent[]> =>
-      actions.ensureDetectedAgents(undefined, true),
+    ensureNativeDetectedAgents: (): Promise<TuiAgent[]> => {
+      nativeInventoryRequested = true
+      return actions.ensureDetectedAgents(undefined, true)
+    },
     ensureAllDetectedAgents: (worktreeId?: string | null): Promise<TuiAgent[]> =>
       actions.ensureDetectedAgents(worktreeId, false, true),
     ensureDetectedAgents: (
@@ -207,6 +210,7 @@ export const createLocalDetectedAgentState: LocalDetectedAgentStateCreator = (se
     },
 
     clearLocalDetectedAgents: () => {
+      nativeInventoryRequested = false
       lifecycle.localDetectionGeneration += 1
       lifecycle.detectPromises.clear()
       lifecycle.refreshPromises.clear()
@@ -227,7 +231,12 @@ export const createLocalDetectedAgentState: LocalDetectedAgentStateCreator = (se
         previous.settings?.disabledTuiAgents
       )
     ) {
+      const reacquireNativeInventory = nativeInventoryRequested
       actions.clearLocalDetectedAgents()
+      // Native consumers can remain mounted while workspace consumers reacquire only WSL.
+      if (reacquireNativeInventory) {
+        void actions.ensureNativeDetectedAgents()
+      }
     }
   })
   return actions

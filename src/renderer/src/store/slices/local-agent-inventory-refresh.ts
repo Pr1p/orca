@@ -63,7 +63,7 @@ export function refreshLocalAgentInventory(
   if (!isolatedInventory) {
     lifecycle.legacyRefreshContextKey = contextKey
   }
-  const supersedesDetect = lifecycle.detectPromises.delete(contextKey)
+  lifecycle.detectPromises.delete(contextKey)
   if (includeDisabled) {
     lifecycle.detectPromises.delete(publishedContextKey)
     lifecycle.refreshPromises.delete(publishedContextKey)
@@ -82,15 +82,7 @@ export function refreshLocalAgentInventory(
           lifecycle.detectedContextKey === publishedContextKey,
           'refresh'
         ) ?? {})),
-    ...getSupersededDetectPatch(state, contextKey, supersedesDetect, clearsLegacyDetect),
-    ...(includeDisabled
-      ? {
-          isDetectingLocalAgentsByContext: contextEviction.removeLocalAgentContextEntry(
-            state.isDetectingLocalAgentsByContext,
-            publishedContextKey
-          )
-        }
-      : {}),
+    ...getSupersededDetectPatch(state, refreshContextKeys, clearsLegacyDetect),
     isRefreshingLocalAgentsByContext: {
       ...state.isRefreshingLocalAgentsByContext,
       [contextKey]: true,
