@@ -200,7 +200,9 @@ export function registerPtyConnectionHiddenOutputRestoreTests(): void {
       pane.terminal.cols = 80
       pane.terminal.rows = 8
       let terminalInputHandler: ((data: string) => void) | null = null
+      const snapshotWrites: string[] = []
       pane.terminal.write.mockImplementation((data: string | Uint8Array, callback?: () => void) => {
+        snapshotWrites.push(terminalWriteText(data))
         callback?.()
         if (terminalWriteText(data).includes(restoredModes)) {
           queueMicrotask(() => terminalInputHandler?.(restoredModes))
@@ -215,8 +217,12 @@ export function registerPtyConnectionHiddenOutputRestoreTests(): void {
       const onDataMock = pane.terminal.onData as unknown as {
         mock: { calls: [[(data: string) => void] | []] }
       }
-      terminalInputHandler = onDataMock.mock.calls[0]?.[0] ?? null
-      expect(terminalInputHandler).toBeTypeOf('function')
+      const registeredInputHandler = onDataMock.mock.calls[0]?.[0]
+      expect(registeredInputHandler).toBeTypeOf('function')
+      if (!registeredInputHandler) {
+        throw new Error('Expected terminal input handler')
+      }
+      terminalInputHandler = vi.fn(registeredInputHandler)
 
       capturedDataCallback.current?.('hidden output', { seq: 1, rawLength: 13 })
       ;(deps.isVisibleRef as { current: boolean }).current = true
@@ -226,6 +232,8 @@ export function registerPtyConnectionHiddenOutputRestoreTests(): void {
       await flushAsyncTicks(20)
 
       expect(getMainBufferSnapshot).toHaveBeenCalled()
+      expect(snapshotWrites.join('')).toContain(restoredModes)
+      expect(terminalInputHandler).toHaveBeenCalledWith(restoredModes)
       expect(transport.sendInput).not.toHaveBeenCalled()
       binding.dispose()
     })
