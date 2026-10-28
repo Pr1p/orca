@@ -1,8 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  getTuiAgentDetectionProbeCommands,
-  KNOWN_TUI_AGENT_DETECTION_COMMANDS
-} from '../../shared/tui-agent-detection-commands'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { detectCommandsMock } = vi.hoisted(() => ({
   detectCommandsMock: vi.fn(async (_commands: readonly string[]) => new Set<string>())
@@ -20,48 +16,52 @@ vi.mock('../ipc/preflight-runtime-target', () => ({
 
 import { detectInstalledAgents } from './installed-agent-detection'
 
-function expectedProbeCommands(disabledAgentIds: ReadonlySet<string>): string[] {
-  return getTuiAgentDetectionProbeCommands(
-    KNOWN_TUI_AGENT_DETECTION_COMMANDS.filter((command) => !disabledAgentIds.has(command.id)),
-    process.platform
-  )
-}
+const originalPlatform = process.platform
 
 describe('detectInstalledAgents disabled-agent filtering', () => {
   beforeEach(() => {
     detectCommandsMock.mockReset()
-    detectCommandsMock.mockResolvedValue(new Set<string>())
   })
 
-  it('skips probing the commands of agents disabled in Settings → Agents', async () => {
-    const disabled = new Set([KNOWN_TUI_AGENT_DETECTION_COMMANDS[0].id])
-    await detectInstalledAgents(undefined, { disabledTuiAgents: [...disabled] })
-    const probed = detectCommandsMock.mock.calls[0]?.[0] as string[]
-    expect(probed).toEqual(expectedProbeCommands(disabled))
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform })
   })
 
-  it('never reports a disabled agent, even when another agent probes the same command', async () => {
-    const disabledAgent = KNOWN_TUI_AGENT_DETECTION_COMMANDS[0]
-    const everyKnownCommand = new Set(
-      KNOWN_TUI_AGENT_DETECTION_COMMANDS.flatMap((command) => [
-        command.cmd,
-        ...(command.requiredCommands ?? [])
-      ])
+  it('omits a disabled agent with a unique command from probes and results', async () => {
+    detectCommandsMock.mockImplementation(
+      async (commands) =>
+        new Set(commands.filter((command) => command === 'codex' || command === 'gemini'))
     )
-    detectCommandsMock.mockResolvedValueOnce(everyKnownCommand)
-    const detected = await detectInstalledAgents(undefined, {
-      disabledTuiAgents: [disabledAgent.id]
+
+    await expect(detectInstalledAgents()).resolves.toEqual(['codex', 'gemini'])
+    await expect(
+      detectInstalledAgents(undefined, { disabledTuiAgents: ['codex'] })
+    ).resolves.toEqual(['gemini'])
+    expect(detectCommandsMock).toHaveBeenLastCalledWith(expect.not.arrayContaining(['codex']), {
+      context: undefined
     })
-    expect(detected).not.toContain(disabledAgent.id)
-    const enabledIds = new Set(
-      KNOWN_TUI_AGENT_DETECTION_COMMANDS.map(({ id }) => id).filter((id) => id !== disabledAgent.id)
-    )
-    expect(detected.some((id) => enabledIds.has(id as never))).toBe(true)
   })
 
-  it('probes every known agent when no disabled list is given', async () => {
-    await detectInstalledAgents()
-    const probed = detectCommandsMock.mock.calls.at(-1)?.[0] as string[]
-    expect(probed).toEqual(expectedProbeCommands(new Set()))
+  it('keeps a shared command for an enabled agent without reporting the disabled agent', async () => {
+    Object.defineProperty(process, 'platform', { value: 'linux' })
+    detectCommandsMock.mockImplementation(
+      async (commands) =>
+        new Set(commands.filter((command) => command === 'claude' || command === 'orca'))
+    )
+
+    await expect(
+      detectInstalledAgents(undefined, { disabledTuiAgents: ['claude'] })
+    ).resolves.toEqual(['claude-agent-teams'])
+    expect(detectCommandsMock).toHaveBeenCalledExactlyOnceWith(
+      expect.arrayContaining(['claude', 'orca']),
+      { context: undefined }
+    )
+
+    await expect(
+      detectInstalledAgents(undefined, { disabledTuiAgents: ['claude-agent-teams'] })
+    ).resolves.toEqual(['claude'])
+    expect(detectCommandsMock).toHaveBeenLastCalledWith(expect.not.arrayContaining(['orca']), {
+      context: undefined
+    })
   })
 })
