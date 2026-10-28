@@ -27,12 +27,14 @@ const LAZY_LOCALE_LOADERS: Record<
   Exclude<SupportedUiLocale, 'en'>,
   () => Promise<{ default: Record<string, unknown> }>
 > = {
+  de: () => import('../../renderer/src/i18n/locales/de.json'),
   es: () => import('../../renderer/src/i18n/locales/es.json'),
   fr: () => import('../../renderer/src/i18n/locales/fr.json'),
   ja: () => import('../../renderer/src/i18n/locales/ja.json'),
   ko: () => import('../../renderer/src/i18n/locales/ko.json'),
   pt: () => import('../../renderer/src/i18n/locales/pt.json'),
   ru: () => import('../../renderer/src/i18n/locales/ru.json'),
+  tr: () => import('../../renderer/src/i18n/locales/tr.json'),
   zh: () => import('../../renderer/src/i18n/locales/zh.json'),
   'zh-Hant': () => import('../../renderer/src/i18n/locales/zh-Hant.json')
 }
