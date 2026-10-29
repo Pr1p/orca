@@ -144,6 +144,21 @@ export function shouldPreventDefaultTerminalImeCandidateKey(
   )
 }
 
+/** Arm the pending release for every guarded candidate keydown, preventDefault or not:
+ *  a held Space or digit can repeat past the guard window, and the armed release keeps
+ *  those repeats owned until the key comes up. */
+export function shouldArmTerminalImePendingCandidateKeyRelease(
+  event: XtermBypassEvent,
+  options: XtermImeKeyboardOptions
+): boolean {
+  return (
+    event.type === 'keydown' &&
+    options.isLinux &&
+    options.candidateKeyGuardActive &&
+    isTerminalImeCandidateSelectionKeyEvent(event)
+  )
+}
+
 /**
  * A logical key a Latin layout could have produced. Only then is `key` authoritative:
  * Dvorak moving `c` elsewhere is a real remap and must be honoured.

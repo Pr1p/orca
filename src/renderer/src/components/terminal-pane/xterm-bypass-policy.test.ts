@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   isAppOwnedCopyChord,
+  shouldArmTerminalImePendingCandidateKeyRelease,
   shouldBypassXtermKeyboardEvent,
   shouldPreventDefaultTerminalImeCandidateKey,
   shouldSuppressTerminalImeKeyboardEvent
-} from './xterm-bypass-policy'
+} from './xterm-bypass-policy' 
 import { event } from './xterm-bypass-event-fixture'
 
 describe('shouldBypassXtermKeyboardEvent — macOS', () => {
@@ -347,4 +348,28 @@ describe('shouldPreventDefaultTerminalImeCandidateKey — Linux guard halves', (
       )
     ).toBe(true)
   })
+
+  it('arms the pending release in both guard halves', () => {
+    // A held Space or digit can repeat past the guard window; the release stays armed
+    // whether or not the keydown was preventDefault'ed (#30334).
+    expect(
+      shouldArmTerminalImePendingCandidateKeyRelease(event({ key: ' ', code: 'Space' }), linuxLive)
+    ).toBe(true)
+    expect(
+      shouldArmTerminalImePendingCandidateKeyRelease(
+        event({ key: '3', code: 'Digit3' }),
+        linuxPostWindow
+      )
+    ).toBe(true)
+    expect(
+      shouldArmTerminalImePendingCandidateKeyRelease(event({ key: ' ', code: 'Space' }), {
+        isMac: false,
+        isLinux: true,
+        compositionActive: false,
+        candidateKeyGuardActive: false,
+        pendingCandidateKeyReleaseActive: false
+      })
+    ).toBe(false)
+  })
+}
 })
