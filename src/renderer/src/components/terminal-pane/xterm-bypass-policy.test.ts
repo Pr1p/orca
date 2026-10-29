@@ -371,5 +371,4 @@ describe('shouldPreventDefaultTerminalImeCandidateKey — Linux guard halves', (
       })
     ).toBe(false)
   })
-}
 })
