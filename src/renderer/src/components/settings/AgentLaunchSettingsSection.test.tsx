@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { createGlobalSettingsFixture } from '../../../../shared/global-settings-test-fixture'
 import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import type { TuiAgent } from '../../../../shared/tui-agent'
@@ -19,22 +19,33 @@ type CapturedLocalCatalogProps = {
   }
 }
 
+type RemoteCatalogProps = {
+  environmentId: string
+  pairingRevision: number
+}
+type RemoteCatalogSpy = (props: RemoteCatalogProps) => void
+type LocalCatalogSpy = (props: CapturedLocalCatalogProps) => void
+type UpdateSettingsOrThrow = (
+  updates: Partial<GlobalSettings>,
+  onAcknowledged?: (next: GlobalSettings) => void
+) => Promise<void>
+
 type TestState = {
   runtimeEnvironments: { id: string; name: string; createdAt: number; pairingRevision: number }[]
-  remote: ReturnType<typeof vi.fn>
-  local: ReturnType<typeof vi.fn>
+  remote: Mock<RemoteCatalogSpy>
+  local: Mock<LocalCatalogSpy>
   catalogProps: CapturedLocalCatalogProps | null
   settings: GlobalSettings | null
-  updateSettingsOrThrow: ReturnType<typeof vi.fn>
+  updateSettingsOrThrow: Mock<UpdateSettingsOrThrow>
 }
 
 const state = vi.hoisted((): TestState => ({
   runtimeEnvironments: [{ id: 'ssh-host', name: 'SSH host', createdAt: 1, pairingRevision: 17 }],
-  remote: vi.fn(),
-  local: vi.fn(),
+  remote: vi.fn<RemoteCatalogSpy>(),
+  local: vi.fn<LocalCatalogSpy>(),
   catalogProps: null,
   settings: null,
-  updateSettingsOrThrow: vi.fn()
+  updateSettingsOrThrow: vi.fn<UpdateSettingsOrThrow>()
 }))
 vi.mock('@/store', () => ({
   useAppStore: Object.assign(
@@ -145,6 +156,76 @@ describe('launch settings host', () => {
       savePostPasteSubmitInput('codex', 'ctrl-enter'),
       savePostPasteSubmitInput('claude', 'ctrl-enter')
     ])
+
+    expect(state.settings?.agentPostPasteSubmitInputs).toEqual({
+      codex: 'ctrl-enter',
+      claude: 'ctrl-enter'
+    })
+  })
+
+  it('keeps submit-key saves ordered across a host-scope remount', async () => {
+    const settings = createGlobalSettingsFixture({ agentPostPasteSubmitInputs: {} })
+    state.settings = settings
+    let releaseFirstSave: () => void = () => {
+      throw new Error('Expected the first settings write to be pending.')
+    }
+    const firstSaveGate = new Promise<void>((resolve) => {
+      releaseFirstSave = resolve
+    })
+    state.updateSettingsOrThrow.mockImplementation(
+      async (updates: Partial<GlobalSettings>, onAcknowledged?: (next: GlobalSettings) => void) => {
+        if (state.updateSettingsOrThrow.mock.calls.length === 1) {
+          await firstSaveGate
+        }
+        if (!state.settings) {
+          throw new Error('Expected settings to be available before saving.')
+        }
+        state.settings = { ...state.settings, ...updates }
+        onAcknowledged?.(state.settings)
+      }
+    )
+    const { rerender } = render(
+      <AgentLaunchSettingsSection
+        settings={settings}
+        updateSettings={vi.fn()}
+        hostScope={{ target: { kind: 'local' }, available: true }}
+        renderPermissions={() => null}
+      />
+    )
+    const firstSave = state.catalogProps?.local?.savePostPasteSubmitInput
+    if (!firstSave) {
+      throw new Error('Expected the local catalog to provide a post-paste submit-input saver.')
+    }
+    const firstWrite = firstSave('codex', 'ctrl-enter')
+    await waitFor(() => expect(state.updateSettingsOrThrow).toHaveBeenCalledTimes(1))
+
+    rerender(
+      <AgentLaunchSettingsSection
+        settings={settings}
+        updateSettings={vi.fn()}
+        hostScope={SSH_HOST}
+        renderPermissions={() => null}
+      />
+    )
+    rerender(
+      <AgentLaunchSettingsSection
+        settings={settings}
+        updateSettings={vi.fn()}
+        hostScope={{ target: { kind: 'local' }, available: true }}
+        renderPermissions={() => null}
+      />
+    )
+    const secondSave = state.catalogProps?.local?.savePostPasteSubmitInput
+    if (!secondSave) {
+      throw new Error(
+        'Expected the remounted local catalog to provide a post-paste submit-input saver.'
+      )
+    }
+    const secondWrite = secondSave('claude', 'ctrl-enter')
+    expect(state.updateSettingsOrThrow).toHaveBeenCalledTimes(1)
+
+    releaseFirstSave()
+    await Promise.all([firstWrite, secondWrite])
 
     expect(state.settings?.agentPostPasteSubmitInputs).toEqual({
       codex: 'ctrl-enter',
