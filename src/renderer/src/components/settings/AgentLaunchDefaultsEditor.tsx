@@ -9,9 +9,7 @@ import {
   type AgentDefaultEnvDraftInvalidReason
 } from './agent-default-env-draft'
 import { useAgentLaunchFieldWrite } from './use-agent-launch-field-write'
-import { AgentPermissionArgsChip } from './AgentPermissionChoiceControls'
-import { SettingsSegmentedControl } from './SettingsFormControls'
-import type { AgentPostPasteSubmitInput } from '../../../../shared/tui-agent-post-paste-submit'
+import { AgentArgsChoiceChips, type AgentArgsChoice } from './AgentPermissionChoiceControls'
 
 export function AgentCommandOverrideInput({
   defaultCmd,
@@ -89,20 +87,19 @@ export function AgentDefaultArgsInput({
   defaultArgs,
   argsOverride,
   onSaveArgs,
-  permissionChip,
+  choiceChips,
   note,
   disabled = false,
-  onDraftChange
+  onDraftChange,
+  placeholder,
+  onResetArgs
 }: {
   defaultArgs: string
+  placeholder?: string
+  onResetArgs?: () => void | Promise<void>
   argsOverride: string
   onSaveArgs: (value: string) => void | Promise<void>
-  permissionChip?: {
-    label: string
-    flag: string
-    removeRecipe: (text: string) => string | null
-    onRemove: () => void
-  }
+  choiceChips?: readonly AgentArgsChoice[]
   note?: string
   disabled?: boolean
   onDraftChange?: (value: string) => void
@@ -113,6 +110,7 @@ export function AgentDefaultArgsInput({
   const chipButtonRef = useRef<HTMLButtonElement>(null)
   const argsDraft = onDraftChange ? argsOverride : (draft ?? argsOverride)
   const { pending, write } = useAgentLaunchFieldWrite()
+  const chipFlags = choiceChips?.map((chip) => chip.flag).join(' ')
   useLayoutEffect(() => {
     const input = inputRef.current
     const chip = chipRef.current
@@ -130,7 +128,7 @@ export function AgentDefaultArgsInput({
     const observer = new ResizeObserver(measure)
     observer.observe(chip)
     return () => observer.disconnect()
-  }, [permissionChip?.flag])
+  }, [chipFlags])
   const commitArgs = (): void => {
     if (disabled || pending || (!onDraftChange && draft === null)) {
       return
@@ -166,26 +164,24 @@ export function AgentDefaultArgsInput({
             }
           }}
         >
-          {permissionChip && (
-            <AgentPermissionArgsChip
-              {...permissionChip}
+          {choiceChips?.length ? (
+            <AgentArgsChoiceChips
+              chips={choiceChips}
               chipRef={chipRef}
               buttonRef={chipButtonRef}
               disabled={disabled || pending}
-              onRemove={() => {
+              onRemove={(chip) => {
                 if (disabled || pending) {
                   return
                 }
-                if (onDraftChange) {
-                  onDraftChange(permissionChip.removeRecipe(argsDraft) ?? argsDraft)
-                } else if (draft !== null) {
-                  setDraft(permissionChip.removeRecipe(draft) ?? draft)
+                const next = chip.onRemove(argsDraft)
+                if (!onDraftChange && draft !== null) {
+                  setDraft(next)
                 }
                 inputRef.current?.focus()
-                permissionChip.onRemove()
               }}
             />
-          )}
+          ) : null}
           <Textarea
             variant="composite"
             ref={inputRef}
@@ -202,7 +198,7 @@ export function AgentDefaultArgsInput({
                 return
               }
               if (
-                permissionChip &&
+                choiceChips?.length &&
                 event.key === 'Backspace' &&
                 !event.repeat &&
                 !event.altKey &&
@@ -224,9 +220,10 @@ export function AgentDefaultArgsInput({
               }
             }}
             placeholder={
-              permissionChip
+              choiceChips?.length
                 ? undefined
-                : defaultArgs ||
+                : placeholder ||
+                  defaultArgs ||
                   translate(
                     'auto.components.settings.AgentsPane.6f99bf5dd0',
                     'No default arguments'
@@ -236,7 +233,9 @@ export function AgentDefaultArgsInput({
             className="block min-h-5 [field-sizing:content]"
           />
         </div>
-        {(argsOverride !== defaultArgs || argsDraft !== defaultArgs) && (
+        {(argsOverride !== defaultArgs ||
+          argsDraft !== defaultArgs ||
+          Boolean(onResetArgs && choiceChips?.length)) && (
           <Button
             type="button"
             variant="ghost"
@@ -248,7 +247,7 @@ export function AgentDefaultArgsInput({
               }
               write(
                 defaultArgs,
-                () => onSaveArgs(defaultArgs),
+                () => (onResetArgs ? onResetArgs() : onSaveArgs(defaultArgs)),
                 () => setDraft((current) => (current === argsDraft ? null : current))
               )
             }}
@@ -374,39 +373,6 @@ export function AgentDefaultEnvInput({
               )}
         </p>
       )}
-    </div>
-  )
-}
-
-export function AgentPostPasteSubmitInputControl({
-  value,
-  onSave
-}: {
-  value: AgentPostPasteSubmitInput
-  onSave: (value: AgentPostPasteSubmitInput) => void | Promise<void>
-}): React.JSX.Element {
-  return (
-    <div className="flex flex-col gap-1">
-      <span className="text-xs text-muted-foreground">
-        {translate('settings.agents.postPasteSubmit', 'After pasting an action recipe')}
-      </span>
-      <SettingsSegmentedControl<AgentPostPasteSubmitInput>
-        value={value}
-        onChange={(next) => {
-          if (next !== value) {
-            void onSave(next)
-          }
-        }}
-        ariaLabel={translate('settings.agents.postPasteSubmit', 'After pasting an action recipe')}
-        size="sm"
-        options={[
-          { value: 'enter', label: translate('settings.agents.submitEnter', 'Press Enter') },
-          {
-            value: 'ctrl-enter',
-            label: translate('settings.agents.submitCtrlEnter', 'Press Ctrl+Enter')
-          }
-        ]}
-      />
     </div>
   )
 }

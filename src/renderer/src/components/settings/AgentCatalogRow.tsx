@@ -19,9 +19,9 @@ import {
 import {
   AgentCommandOverrideInput,
   AgentDefaultArgsInput,
-  AgentDefaultEnvInput,
-  AgentPostPasteSubmitInputControl
+  AgentDefaultEnvInput
 } from './AgentLaunchDefaultsEditor'
+import { AgentPostPasteSubmitInputControl } from './AgentPostPasteSubmitInputControl'
 import type { AgentPostPasteSubmitInput } from '../../../../shared/tui-agent-post-paste-submit'
 import {
   agentPermissionChoiceLabel,
@@ -303,17 +303,20 @@ export function AgentCatalogRow({
                   defaultArgs={defaultArgs}
                   argsOverride={argsOverride}
                   onSaveArgs={onSaveArgs}
-                  permissionChip={
+                  choiceChips={
                     permissionChoice?.flag && !permissionChoice.argsSetPermission
-                      ? {
-                          label,
-                          flag: permissionChoice.flag,
-                          removeRecipe: (text) => {
-                            const lifted = liftAgentPermissionArgs(agentId, text)
-                            return lifted.choice !== null ? lifted.args : null
-                          },
-                          onRemove: () => permissionChoice.onSelect('own')
-                        }
+                      ? [
+                          {
+                            key: 'permissionMode',
+                            label,
+                            flag: permissionChoice.flag,
+                            onRemove: (text) => {
+                              const lifted = liftAgentPermissionArgs(agentId, text)
+                              permissionChoice.onSelect('own')
+                              return lifted.choice !== null ? lifted.args : text
+                            }
+                          }
+                        ]
                       : undefined
                   }
                   note={
