@@ -2,19 +2,50 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createGlobalSettingsFixture } from '../../../../shared/global-settings-test-fixture'
+import type { GlobalSettings } from '../../../../shared/global-settings-types'
+import type { TuiAgent } from '../../../../shared/tui-agent'
+import type { AgentPostPasteSubmitInput } from '../../../../shared/tui-agent-post-paste-submit'
 import { AgentLaunchSettingsSection } from './AgentLaunchSettingsSection'
 import type { SettingsHostScope } from './settings-host-scope'
 
-const state = vi.hoisted(() => ({
+type PostPasteSubmitInputSaver = (
+  agent: TuiAgent,
+  value: AgentPostPasteSubmitInput
+) => Promise<void>
+
+type CapturedLocalCatalogProps = {
+  local?: {
+    savePostPasteSubmitInput: PostPasteSubmitInputSaver
+  }
+}
+
+type TestState = {
+  runtimeEnvironments: { id: string; name: string; createdAt: number; pairingRevision: number }[]
+  remote: ReturnType<typeof vi.fn>
+  local: ReturnType<typeof vi.fn>
+  catalogProps: CapturedLocalCatalogProps | null
+  settings: GlobalSettings | null
+  updateSettingsOrThrow: ReturnType<typeof vi.fn>
+}
+
+const state = vi.hoisted((): TestState => ({
   runtimeEnvironments: [{ id: 'ssh-host', name: 'SSH host', createdAt: 1, pairingRevision: 17 }],
   remote: vi.fn(),
-  local: vi.fn()
+  local: vi.fn(),
+  catalogProps: null,
+  settings: null,
+  updateSettingsOrThrow: vi.fn()
 }))
 vi.mock('@/store', () => ({
   useAppStore: Object.assign(
     (selector: (value: { runtimeEnvironments: typeof state.runtimeEnvironments }) => unknown) =>
       selector({ runtimeEnvironments: state.runtimeEnvironments }),
-    { getState: () => ({ settings: null }) }
+    {
+      getState: () => ({
+        settings: state.settings,
+        updateSettingsOrThrow: state.updateSettingsOrThrow
+      })
+    }
   )
 }))
 vi.mock('./HostAgentLaunchSettings', async () => {
@@ -30,8 +61,9 @@ vi.mock('./HostAgentLaunchSettings', async () => {
 })
 vi.mock('./AgentLaunchSettingsCatalog', () => ({
   AgentLaunchSettingsLoading: () => <button disabled>Permissions</button>,
-  AgentLaunchSettingsCatalog: (props: unknown) => {
+  AgentLaunchSettingsCatalog: (props: CapturedLocalCatalogProps) => {
     state.local(props)
+    state.catalogProps = props
     return <p>Local launch settings</p>
   }
 }))
@@ -46,6 +78,9 @@ beforeEach(() => {
   ]
   state.remote.mockClear()
   state.local.mockClear()
+  state.catalogProps = null
+  state.settings = null
+  state.updateSettingsOrThrow.mockReset()
 })
 const SSH_HOST: SettingsHostScope = {
   target: { kind: 'environment', environmentId: 'ssh-host' },
@@ -79,6 +114,42 @@ describe('launch settings host', () => {
     render(section({ target: { kind: 'local' }, available: true }, 'ssh-host'))
     expect(screen.getByText('Local launch settings')).toBeTruthy()
     expect(state.remote).not.toHaveBeenCalled()
+  })
+
+  it('keeps earlier submit-key selections when several agents are updated before a rerender', async () => {
+    const settings = createGlobalSettingsFixture({ agentPostPasteSubmitInputs: {} })
+    state.settings = settings
+    state.updateSettingsOrThrow.mockImplementation(
+      async (updates: Partial<GlobalSettings>, onAcknowledged?: (next: GlobalSettings) => void) => {
+        if (!state.settings) {
+          throw new Error('Expected settings to be available before saving.')
+        }
+        state.settings = { ...state.settings, ...updates }
+        onAcknowledged?.(state.settings)
+      }
+    )
+    render(
+      <AgentLaunchSettingsSection
+        settings={settings}
+        updateSettings={vi.fn()}
+        hostScope={{ target: { kind: 'local' }, available: true }}
+        renderPermissions={() => null}
+      />
+    )
+    const savePostPasteSubmitInput = state.catalogProps?.local?.savePostPasteSubmitInput
+    if (!savePostPasteSubmitInput) {
+      throw new Error('Expected the local catalog to provide a post-paste submit-input saver.')
+    }
+
+    await Promise.all([
+      savePostPasteSubmitInput('codex', 'ctrl-enter'),
+      savePostPasteSubmitInput('claude', 'ctrl-enter')
+    ])
+
+    expect(state.settings?.agentPostPasteSubmitInputs).toEqual({
+      codex: 'ctrl-enter',
+      claude: 'ctrl-enter'
+    })
   })
 
   it('remounts the host form when its host is re-paired, dropping unsaved edits', () => {

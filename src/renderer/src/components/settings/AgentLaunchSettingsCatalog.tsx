@@ -83,6 +83,7 @@ export function AgentLaunchSettingsCatalog({
   local?: {
     settings: GlobalSettings
     saveEnvironment: (agent: TuiAgent, value: Record<string, string>) => Promise<void>
+    savePostPasteSubmitInput: (agent: TuiAgent, value: AgentPostPasteSubmitInput) => Promise<void>
     updateSettings: (updates: Partial<GlobalSettings>) => void | Promise<void>
   }
 }): React.JSX.Element {
@@ -225,12 +226,7 @@ export function AgentLaunchSettingsCatalog({
             local.settings.agentPostPasteSubmitInputs
           ),
           onSavePostPasteSubmitInput: (value: AgentPostPasteSubmitInput) =>
-            local.updateSettings({
-              agentPostPasteSubmitInputs: {
-                ...local.settings.agentPostPasteSubmitInputs,
-                [agent.id]: value
-              }
-            })
+            local.savePostPasteSubmitInput(agent.id, value)
         }
       : {}),
     ...(!local
