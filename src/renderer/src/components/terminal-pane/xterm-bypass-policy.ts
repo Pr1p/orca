@@ -132,11 +132,14 @@ export function shouldPreventDefaultTerminalImeCandidateKey(
   event: XtermBypassEvent,
   options: XtermImeKeyboardOptions
 ): boolean {
-  // Bypass alone leaves native defaults; prevent candidate keypress/textarea edits from leaking through a later 229 diff.
+  // Bypass alone leaves native defaults; prevent trailing candidate keys from leaking through a later 229 diff.
+  // While a composition session is live, the candidate keydown is the IME's commit trigger: preventing it
+  // also cancels the browser-generated keypress that carries the committed character (#30334).
   return (
     event.type === 'keydown' &&
     options.isLinux &&
     options.candidateKeyGuardActive &&
+    !options.compositionActive &&
     isTerminalImeCandidateSelectionKeyEvent(event)
   )
 }

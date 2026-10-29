@@ -314,3 +314,37 @@ describe('shouldSuppressTerminalImeKeyboardEvent — macOS', () => {
     ).toBe(false)
   })
 })
+
+describe('shouldPreventDefaultTerminalImeCandidateKey — Linux guard halves', () => {
+  const linuxLive = {
+    isMac: false,
+    isLinux: true,
+    compositionActive: true,
+    candidateKeyGuardActive: true,
+    pendingCandidateKeyReleaseActive: false
+  }
+  const linuxPostWindow = {
+    isMac: false,
+    isLinux: true,
+    compositionActive: false,
+    candidateKeyGuardActive: true,
+    pendingCandidateKeyReleaseActive: false
+  }
+
+  it('keeps the live-composition candidate keydown native so the committed keypress survives', () => {
+    // During a live composition session the candidate keydown is the IME's commit trigger;
+    // preventing it cancels the browser-generated keypress that carries the committed character (#30334).
+    expect(
+      shouldPreventDefaultTerminalImeCandidateKey(event({ key: ' ', code: 'Space' }), linuxLive)
+    ).toBe(false)
+  })
+
+  it('still prevents trailing candidate keys in the post-composition window', () => {
+    expect(
+      shouldPreventDefaultTerminalImeCandidateKey(
+        event({ key: '3', code: 'Digit3' }),
+        linuxPostWindow
+      )
+    ).toBe(true)
+  })
+})
