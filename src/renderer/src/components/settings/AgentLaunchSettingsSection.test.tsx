@@ -5,7 +5,10 @@ import { createGlobalSettingsFixture } from '../../../../shared/global-settings-
 import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import type { TuiAgent } from '../../../../shared/tui-agent'
 import type { AgentPostPasteSubmitInput } from '../../../../shared/tui-agent-post-paste-submit'
-import { AgentLaunchSettingsSection } from './AgentLaunchSettingsSection'
+import {
+  AgentLaunchSettingsSection,
+  resetLocalAgentPostPasteSubmitInputAcknowledgementsForTests
+} from './AgentLaunchSettingsSection'
 import type { SettingsHostScope } from './settings-host-scope'
 
 type PostPasteSubmitInputSaver = (
@@ -83,6 +86,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 beforeEach(() => {
+  resetLocalAgentPostPasteSubmitInputAcknowledgementsForTests()
   vi.stubGlobal('api', { platform: { get: () => ({ platform: 'darwin' }) } })
   state.runtimeEnvironments = [
     { id: 'ssh-host', name: 'SSH host', createdAt: 1, pairingRevision: 17 }
@@ -231,6 +235,41 @@ describe('launch settings host', () => {
       codex: 'ctrl-enter',
       claude: 'ctrl-enter'
     })
+  })
+
+  it('preserves queued submit-key selections when an earlier acknowledgement is fenced', async () => {
+    const settings = createGlobalSettingsFixture({ agentPostPasteSubmitInputs: {} })
+    const writes: Partial<GlobalSettings>[] = []
+    state.settings = settings
+    state.updateSettingsOrThrow.mockImplementation(
+      async (updates: Partial<GlobalSettings>, onAcknowledged?: (next: GlobalSettings) => void) => {
+        writes.push(updates)
+        onAcknowledged?.({ ...settings, ...updates })
+      }
+    )
+    render(
+      <AgentLaunchSettingsSection
+        settings={settings}
+        updateSettings={vi.fn()}
+        hostScope={{ target: { kind: 'local' }, available: true }}
+        renderPermissions={() => null}
+      />
+    )
+    const savePostPasteSubmitInput = state.catalogProps?.local?.savePostPasteSubmitInput
+    if (!savePostPasteSubmitInput) {
+      throw new Error('Expected the local catalog to provide a post-paste submit-input saver.')
+    }
+
+    await Promise.all([
+      savePostPasteSubmitInput('codex', 'ctrl-enter'),
+      savePostPasteSubmitInput('claude', 'ctrl-enter')
+    ])
+
+    expect(writes.map((updates) => updates.agentPostPasteSubmitInputs)).toEqual([
+      { codex: 'ctrl-enter' },
+      { codex: 'ctrl-enter', claude: 'ctrl-enter' }
+    ])
+    expect(state.settings?.agentPostPasteSubmitInputs).toEqual({})
   })
 
   it('remounts the host form when its host is re-paired, dropping unsaved edits', () => {
