@@ -16,19 +16,12 @@ const nodeRuntimeInclude = process.versions.bun
   ? getNodeRuntimeInclude({ filters: readRunFilters() })
   : []
 const balancedShards = process.env.ORCA_BALANCE_UNIT_SHARDS === '1'
-const ciUnitInventory = balancedShards || process.env.ORCA_UNIT_INVENTORY === 'ci'
 const moduleCachePath = process.env.ORCA_UNIT_MODULE_CACHE_PATH
 const measurementFile = 'src/main/foreign-sqlite-readers/foreign-sqlite-reader-event-loop.test.ts'
 const paletteMeasurementFile =
   'src/renderer/src/lib/palette-match/palette-match-performance.test.ts'
 const measurementFiles = [measurementFile, paletteMeasurementFile]
-const phoneContractModules = [
-  'mobile/src/session/native-chat/mobile-native-chat-stream-frame.ts',
-  'mobile/src/session/mobile-native-chat-render-data.ts'
-].map((file) => normalizePath(resolve(file)))
-const phoneContractPattern = new RegExp(
-  `^(?:${phoneContractModules.map((file) => file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})(?:\\?.*)?$`
-)
+const phoneContractPattern = /\/mobile\/src\/.*\.(?:ts|tsx)(?:\?.*)?$/
 const transforms = {
   oxc: { exclude: [/\.js$/, phoneContractPattern] },
   plugins: [
@@ -38,7 +31,7 @@ const transforms = {
       enforce: 'pre',
       async transform(source, id) {
         const filename = normalizePath(id.split('?')[0])
-        if (!phoneContractModules.includes(filename)) {
+        if (!phoneContractPattern.test(filename)) {
           return null
         }
         const result = await transformWithOxc(source, filename, { tsconfig: false })
@@ -87,7 +80,7 @@ const testOptions = {
   environment: 'node',
   clearMocks: false,
   ...(balancedShards ? { silent: 'passed-only' as const } : {}),
-  // Persistent transforms are CI-keyed (ci-unit-module-cache.mjs); local runs stay cold.
+  // Keyed by ci-unit-module-cache.mjs in CI and vitest-local-module-cache.mjs locally.
   fsModuleCache: Boolean(moduleCachePath),
   ...(moduleCachePath ? { fsModuleCachePath: moduleCachePath } : {}),
   env: { ORCA_VITEST_RUNTIME: 'node' },
@@ -96,7 +89,7 @@ const testOptions = {
   execArgv: ['--no-experimental-webstorage', '--expose-gc'],
   setupFiles: UNIT_SETUP_FILES.map((file) => resolve(file)),
   include: UNIT_INCLUDE,
-  exclude: ciUnitInventory ? UNIT_EXCLUDE : defaultExclude,
+  exclude: balancedShards ? UNIT_EXCLUDE : defaultExclude,
   hookTimeout: 60_000,
   testTimeout: 30_000
 }
@@ -161,7 +154,6 @@ export default defineConfig({
   ...transforms,
   test: {
     ...testOptions,
-    experimental: { recordDependencies: !process.env.CI },
     forceRerunTriggers: [
       ...configDefaults.forceRerunTriggers,
       '**/pnpm-lock.yaml',
