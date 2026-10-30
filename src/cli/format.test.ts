@@ -207,7 +207,12 @@ describe('formatWorktreePs', () => {
             branch: 'feature/dying'
           }),
           repo: 'repo',
-          hostId: null,
+          worktreeId: 'repo::/tmp/repo/dying',
+          hasHostSidebarActivity: false,
+          workspaceStatus: 'todo',
+          linkedPR: null,
+          linkedGitLabMR: null,
+          linkedGitLabIssue: null,
           isActive: false,
           unread: false,
           liveTerminalCount: 0,

@@ -362,6 +362,7 @@ describe.skipIf(process.platform === 'win32')('runtime transport', () => {
       sockets.add(socket)
       socket.once('close', () => sockets.delete(socket))
       socket.once('data', (data) => {
+        // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: JSON.parse of the frame our own transport just wrote; only id and the asserted capability fields are read.
         const frame = JSON.parse(String(data).trim()) as Record<string, unknown> & { id: string }
         acceptFrame(frame)
         socket.end(
