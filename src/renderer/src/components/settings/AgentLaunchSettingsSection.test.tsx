@@ -5,10 +5,7 @@ import { createGlobalSettingsFixture } from '../../../../shared/global-settings-
 import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import type { TuiAgent } from '../../../../shared/tui-agent'
 import type { AgentPostPasteSubmitInput } from '../../../../shared/tui-agent-post-paste-submit'
-import {
-  AgentLaunchSettingsSection,
-  resetLocalAgentPostPasteSubmitInputAcknowledgementsForTests
-} from './AgentLaunchSettingsSection'
+import { AgentLaunchSettingsSection } from './AgentLaunchSettingsSection'
 import type { SettingsHostScope } from './settings-host-scope'
 
 type PostPasteSubmitInputSaver = (
@@ -86,8 +83,10 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 beforeEach(() => {
-  resetLocalAgentPostPasteSubmitInputAcknowledgementsForTests()
-  vi.stubGlobal('api', { platform: { get: () => ({ platform: 'darwin' }) } })
+  vi.stubGlobal('api', {
+    platform: { get: () => ({ platform: 'darwin' }) },
+    settings: { get: () => Promise.resolve(state.settings) }
+  })
   state.runtimeEnvironments = [
     { id: 'ssh-host', name: 'SSH host', createdAt: 1, pairingRevision: 17 }
   ]
@@ -240,11 +239,17 @@ describe('launch settings host', () => {
   it('preserves queued submit-key selections when an earlier acknowledgement is fenced', async () => {
     const settings = createGlobalSettingsFixture({ agentPostPasteSubmitInputs: {} })
     const writes: Partial<GlobalSettings>[] = []
+    let persistedSettings = settings
     state.settings = settings
+    vi.stubGlobal('api', {
+      platform: { get: () => ({ platform: 'darwin' }) },
+      settings: { get: () => Promise.resolve(persistedSettings) }
+    })
     state.updateSettingsOrThrow.mockImplementation(
       async (updates: Partial<GlobalSettings>, onAcknowledged?: (next: GlobalSettings) => void) => {
         writes.push(updates)
-        onAcknowledged?.({ ...settings, ...updates })
+        persistedSettings = { ...persistedSettings, ...updates }
+        onAcknowledged?.(persistedSettings)
       }
     )
     render(
@@ -270,6 +275,52 @@ describe('launch settings host', () => {
       { codex: 'ctrl-enter', claude: 'ctrl-enter' }
     ])
     expect(state.settings?.agentPostPasteSubmitInputs).toEqual({})
+  })
+
+  it('does not overwrite a newer submit-key selection from another window', async () => {
+    const settings = createGlobalSettingsFixture({ agentPostPasteSubmitInputs: {} })
+    const writes: Partial<GlobalSettings>[] = []
+    let persistedSettings = settings
+    state.settings = settings
+    vi.stubGlobal('api', {
+      platform: { get: () => ({ platform: 'darwin' }) },
+      settings: { get: () => Promise.resolve(persistedSettings) }
+    })
+    state.updateSettingsOrThrow.mockImplementation(
+      async (updates: Partial<GlobalSettings>, onAcknowledged?: (next: GlobalSettings) => void) => {
+        writes.push(updates)
+        persistedSettings = { ...persistedSettings, ...updates }
+        onAcknowledged?.(persistedSettings)
+      }
+    )
+    render(
+      <AgentLaunchSettingsSection
+        settings={settings}
+        updateSettings={vi.fn()}
+        hostScope={{ target: { kind: 'local' }, available: true }}
+        renderPermissions={() => null}
+      />
+    )
+    const savePostPasteSubmitInput = state.catalogProps?.local?.savePostPasteSubmitInput
+    if (!savePostPasteSubmitInput) {
+      throw new Error('Expected the local catalog to provide a post-paste submit-input saver.')
+    }
+
+    await savePostPasteSubmitInput('codex', 'ctrl-enter')
+    persistedSettings = {
+      ...persistedSettings,
+      agentPostPasteSubmitInputs: {
+        ...persistedSettings.agentPostPasteSubmitInputs,
+        codex: 'enter'
+      }
+    }
+    state.settings = persistedSettings
+    await savePostPasteSubmitInput('claude', 'ctrl-enter')
+
+    expect(writes.map((updates) => updates.agentPostPasteSubmitInputs)).toEqual([
+      { codex: 'ctrl-enter' },
+      { codex: 'enter', claude: 'ctrl-enter' }
+    ])
   })
 
   it('remounts the host form when its host is re-paired, dropping unsaved edits', () => {

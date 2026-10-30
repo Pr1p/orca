@@ -2,7 +2,6 @@ import { useChatSettingsOwnPermissions } from '@/runtime/structured-agent-sessio
 import { toast } from 'sonner'
 import { getAgentLabel } from '@/lib/agent-catalog'
 import type { TuiAgent } from '../../../../shared/tui-agent'
-import { isTuiAgent } from '../../../../shared/tui-agent-config'
 import type { AgentPostPasteSubmitInput } from '../../../../shared/tui-agent-post-paste-submit'
 import { wholeAgentEnvironmentUpdates } from '../../../../shared/agent-launch-permission-updates'
 import { useAppStore } from '@/store'
@@ -29,21 +28,6 @@ import {
 } from './agent-permission-override-notice'
 
 let localAgentLaunchSettingsWriteTail: Promise<void> | null = null
-let localAgentPostPasteSubmitInputAcknowledgements: Partial<
-  Record<TuiAgent, AgentPostPasteSubmitInput>
-> = {}
-
-export function resetLocalAgentPostPasteSubmitInputAcknowledgementsForTests(): void {
-  localAgentPostPasteSubmitInputAcknowledgements = {}
-}
-
-function discardPublishedPostPasteSubmitInputAcknowledgements(settings: GlobalSettings): void {
-  for (const [candidate, input] of Object.entries(localAgentPostPasteSubmitInputAcknowledgements)) {
-    if (isTuiAgent(candidate) && settings.agentPostPasteSubmitInputs?.[candidate] === input) {
-      delete localAgentPostPasteSubmitInputAcknowledgements[candidate]
-    }
-  }
-}
 
 export function AgentLaunchSettingsSection({
   settings,
@@ -188,20 +172,13 @@ function LocalAgentLaunchSettings({
     value: AgentPostPasteSubmitInput
   ): Promise<void> =>
     enqueue(async () => {
-      await write(agent, (current) => {
-        discardPublishedPostPasteSubmitInputAcknowledgements(current)
-        return {
-          agentPostPasteSubmitInputs: {
-            ...current.agentPostPasteSubmitInputs,
-            ...localAgentPostPasteSubmitInputAcknowledgements,
-            [agent]: value
-          }
+      const latest = await window.api.settings.get().catch(failed(agent))
+      await write(agent, () => ({
+        agentPostPasteSubmitInputs: {
+          ...latest.agentPostPasteSubmitInputs,
+          [agent]: value
         }
-      })
-      localAgentPostPasteSubmitInputAcknowledgements = {
-        ...localAgentPostPasteSubmitInputAcknowledgements,
-        [agent]: value
-      }
+      }))
     })
 
   return (
