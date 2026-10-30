@@ -5,7 +5,7 @@ import {
   shouldBypassXtermKeyboardEvent,
   shouldPreventDefaultTerminalImeCandidateKey,
   shouldSuppressTerminalImeKeyboardEvent
-} from './xterm-bypass-policy' 
+} from './xterm-bypass-policy'
 import { event } from './xterm-bypass-event-fixture'
 
 describe('shouldBypassXtermKeyboardEvent — macOS', () => {
