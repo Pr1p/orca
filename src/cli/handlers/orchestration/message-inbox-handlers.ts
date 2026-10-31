@@ -13,6 +13,9 @@ import {
 import { callOrchestrationMutation } from './mutation-request'
 import { resolveOrchestrationTerminalHandle } from './terminal-identity'
 import { RuntimeClientError } from '../../runtime-client'
+import { withReceiptNext } from './receipt-next-text'
+import { printOrchestrationResult } from './agent-view'
+import { formatMessageViewText, toMessageView, type MessageView } from './message-agent-views'
 
 type InboxResult = {
   messages: MessageSummary[]
@@ -24,7 +27,7 @@ type InboxResult = {
 export const ORCHESTRATION_INBOX_HANDLERS: Record<string, CommandHandler> = {
   'orchestration reply': async ({ flags, client, cwd, json }) => {
     const from = await resolveOrchestrationTerminalHandle(flags, cwd, client, 'from')
-    const result = await callOrchestrationMutation<{ message: { id: string } }>(
+    const result = await callOrchestrationMutation<{ message: { id: string }; next?: string }>(
       client,
       flags,
       'orchestration.reply',
@@ -35,7 +38,16 @@ export const ORCHESTRATION_INBOX_HANDLERS: Record<string, CommandHandler> = {
         from
       }
     )
-    printResult(result, json, (value) => `Replied ${value.message.id}`)
+    if (!flags.has('full')) {
+      printOrchestrationResult(result, json, {
+        fields: (value) => ({
+          messageId: value.message.id,
+          next: value.next
+        })
+      })
+      return
+    }
+    printResult(result, json, (value) => withReceiptNext(`Replied ${value.message.id}`, value))
   },
 
   'orchestration inbox': async ({ flags, client, cwd, json }) => {
@@ -57,6 +69,18 @@ export const ORCHESTRATION_INBOX_HANDLERS: Record<string, CommandHandler> = {
         'incompatible_runtime',
         'The running Orca runtime does not support Run-scoped inbox reads. Update or restart Orca and try again.'
       )
+    }
+    if (!full) {
+      printOrchestrationResult(result, json, {
+        fields: (value): { messages: MessageView[] } => ({
+          messages: value.messages.map((message) => toMessageView(message, { recipient: true }))
+        }),
+        text: (fields) =>
+          fields.messages.length === 0
+            ? 'No messages.'
+            : fields.messages.map((view) => formatMessageViewText(view)).join('\n\n')
+      })
+      return
     }
     printResult(result, json, (value) => {
       if (value.count === 0) {

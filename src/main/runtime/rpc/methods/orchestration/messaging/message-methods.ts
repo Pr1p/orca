@@ -1,4 +1,5 @@
 import { defineMethod } from '../../../core'
+import { deliverQuestionAnswer } from '../../../../orchestration/question-answer-delivery'
 import type { TaskStatus } from '../../../../orchestration/db'
 import { OrchestrationError } from '../../../../orchestration/orchestration-error'
 import { ORCHESTRATION_LEGACY_RUN_ID } from '../../../../../../shared/orchestration-rpc-contract'
@@ -15,7 +16,14 @@ import { recordReceiptBeforeNudge, replayMutationNudge } from './mutation-replay
 import { resolveReplyRecipient } from './recipient-routing'
 import { helperQuestionAnswerer } from './helper-question-answerer'
 import { replyToRemoteRunHome } from './reply-remote'
-import { ReplyParams, TaskCreateParams, TaskListParams, TaskUpdateParams } from '../schemas'
+import { withAnswerNext } from '../receipt-next'
+import {
+  ReplyParams,
+  InboxParams,
+  TaskCreateParams,
+  TaskListParams,
+  TaskUpdateParams
+} from '../schemas'
 
 export const ORCHESTRATION_MESSAGE_METHODS = [
   defineMethod({
@@ -87,7 +95,7 @@ export const ORCHESTRATION_MESSAGE_METHODS = [
         return recordReceiptBeforeNudge(
           recordMutationReceipt,
           { ...answered, message: exposeMessage(answered.message) },
-          () => runtime.notifyMessageArrived(`dispatch:${question.dispatch_id}`, 'status')
+          () => deliverQuestionAnswer(runtime, question)
         )
       }
       if (question) {
@@ -106,11 +114,11 @@ export const ORCHESTRATION_MESSAGE_METHODS = [
           body: params.body
         })
         const federated = db.getFederatedDispatch(question.dispatch_id)
-        const receipt = {
+        const receipt = withAnswerNext({
           message: exposeMessage(answered.message),
           question: answered.question,
           duplicate: answered.duplicate
-        }
+        })
         if (federated) {
           db.enqueueFederationRelay({
             dispatchId: question.dispatch_id,
@@ -130,7 +138,7 @@ export const ORCHESTRATION_MESSAGE_METHODS = [
           )
         }
         return recordReceiptBeforeNudge(recordMutationReceipt, receipt, () =>
-          runtime.notifyMessageArrived(`dispatch:${question.dispatch_id}`, 'status')
+          deliverQuestionAnswer(runtime, question)
         )
       }
 

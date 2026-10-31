@@ -1,5 +1,6 @@
 // Share one dispatcher harness; repopulate stable hostCalls/runtimeCalls objects per test so imports keep their identities.
 
+import { EVERY_AGENT_CHAT } from '../../../../shared/native-chat/every-agent-chat.test-fixture'
 import { vi } from 'vitest'
 import type { AgentJournalRenderItem } from '../../../../shared/agent-session-journal-types'
 import type { AgentSessionJournal } from '../../../native-chat/agent-session-journal/journal-store'
@@ -10,10 +11,6 @@ import {
   type StructuredAgentSessionStatusSubscriber
 } from '../../../native-chat/agent-session-wire/structured-agent-session-status-feed'
 import type { OrcaRuntimeService } from '../../orca-runtime'
-import {
-  AGENT_SESSION_PENDING_SEND_RESULT_RUNTIME_CAPABILITY,
-  STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY
-} from '../../../../shared/protocol-version'
 import type { RpcAnyMethodDeclaration, RpcRequest, RpcResponse } from '../core'
 import { RpcDispatcher } from '../dispatcher'
 import { STRUCTURED_AGENT_SESSION_METHODS } from './structured-agent-session'
@@ -125,7 +122,7 @@ const statusFeed = () =>
         }
       ]
     ]),
-    getRecord: () => null,
+    getConversation: () => null,
     now: () => 1_000
   })
 
@@ -176,6 +173,10 @@ export function hostStub(): StructuredAgentSessionHost {
       }
     })),
     waitForSendSettlement: vi.fn(),
+    queuedMessageMove: vi.fn(async () => ({
+      ok: true,
+      value: { messageId: 'queued-1', status: 'moved' }
+    })),
     cancel: vi.fn(async () => ({ ok: true, replayed: false })),
     close: vi.fn(async () => undefined),
     sleepWorkspace: vi.fn(async () => ({ stoppedSessionIds: [SESSION] })),
@@ -211,7 +212,11 @@ export function hostStub(): StructuredAgentSessionHost {
     subscribeTurnCompletions: vi.fn(() => () => undefined),
     unsubscribe: vi.fn()
   })
-  const store = { getOperationRow: vi.fn(() => null), getRecord: vi.fn(() => null) }
+  const store = {
+    getOperationRow: vi.fn(() => null),
+    getRecord: vi.fn(() => null),
+    getConversation: vi.fn(() => null)
+  }
   // Not a call: the logger the host hands a runtime caller that reports for it.
   Reflect.set(hostCalls, 'deps', { logger: recordingStructuredAgentSessionLogger().logger, store })
   return hostCalls as unknown as StructuredAgentSessionHost
@@ -249,7 +254,7 @@ export function dispatcher(
   })
   const runtime = {
     getRuntimeId: () => 'runtime-1',
-    getClientSettings: () => ({ experimentalNativeChat: true }),
+    getClientSettings: () => ({ nativeChatProviders: EVERY_AGENT_CHAT }),
     // The host reads saved settings privately; follow the client settings each test chose.
     requireStore: () => ({ getSettings: () => runtime.getClientSettings() }),
     registerSubscriptionCleanup: vi.fn(),
@@ -303,20 +308,10 @@ export async function openStream(
   return replies
 }
 
-export const STRUCTURED_CLIENT = {
-  clientKind: 'runtime' as const,
-  clientCapabilities: [
-    STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
-    AGENT_SESSION_PENDING_SEND_RESULT_RUNTIME_CAPABILITY
-  ]
-}
-export const STRUCTURED_MOBILE_CLIENT = {
-  clientKind: 'mobile' as const,
-  clientCapabilities: [
-    STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
-    AGENT_SESSION_PENDING_SEND_RESULT_RUNTIME_CAPABILITY
-  ]
-}
+export {
+  STRUCTURED_CLIENT,
+  STRUCTURED_MOBILE_CLIENT
+} from './structured-agent-session-rpc-client.test-fixture'
 
 /** Every suite wants the same lifecycle: a fresh stub per test, no host left installed. */
 export function installStructuredHostStub(): void {

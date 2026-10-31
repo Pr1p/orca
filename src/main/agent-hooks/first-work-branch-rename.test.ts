@@ -152,7 +152,7 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
             }
           ]
         ]),
-        getRecord: () => null,
+        getConversation: () => null,
         now: () => 1,
         onStatusChanged: observe
       })
@@ -252,7 +252,7 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
     const feed = new StructuredAgentSessionStatusFeed({
       logger: createStructuredAgentSessionLogger(),
       sessions: new Map([['session', { journal, params: { location, provider: 'codex' } }]]),
-      getRecord: () => null,
+      getConversation: () => null,
       now: () => 1,
       onStatusChanged: (summary, options) => {
         expect(summary.workspaceId).toBe(workspaceId)
@@ -680,7 +680,7 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
         throw noUpstreamError
       }
       if (args[0] === 'symbolic-ref') {
-        return { stdout: 'you/Nautilus\n', stderr: '' }
+        return { stdout: 'refs/heads/you/Nautilus\n', stderr: '' }
       }
       if (args[0] === 'rev-parse' && args.includes('refs/remotes/origin/you/Nautilus')) {
         throw new Error('not found')
@@ -705,7 +705,7 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
         return { stdout: 'you/Nautilus\n', stderr: '' }
       }
       if (args[0] === 'symbolic-ref') {
-        return { stdout: 'you/Nautilus\n', stderr: '' }
+        return { stdout: 'refs/heads/you/Nautilus\n', stderr: '' }
       }
       if (args[0] === 'rev-parse' && args.some((arg) => arg.includes('@{u}'))) {
         upstreamReadCount += 1

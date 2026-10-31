@@ -21,7 +21,7 @@ import {
   DelegatedMobileDeviceSyncParamsSchema
 } from '../../../shared/delegated-mobile-device-contract'
 import { decodeTerminalStreamFrame } from '../../../shared/terminal-stream-protocol'
-import { sendRemoteRuntimeRequest } from '../../../shared/remote-runtime-client'
+import { sendRemoteRuntimeRequest } from '../../../shared/remote-runtime/remote-runtime-client'
 import { mintBrowserScreencastSubscriptionId } from '../browser-screencast-subscription-id'
 import { OrcaRuntimeService } from '../orca-runtime'
 import { setRuntimeBrowserCommandsFactory } from '../runtime-browser-commands-factory'
@@ -33,6 +33,7 @@ import { BROWSER_CORE_METHODS } from '../rpc/methods/browser-core'
 import { BROWSER_SCREENCAST_METHODS } from '../rpc/methods/browser-screencast'
 import { SSH_METHODS } from '../rpc/methods/ssh'
 import { RUNTIME_CLIENT_CAPABILITY_METHODS } from '../rpc/methods/runtime-client-capabilities'
+import { WORKTREE_METHODS } from '../rpc/methods/worktree'
 import { CLIENT_UI_METHODS } from '../rpc/methods/client-ui'
 import { PAIRING_METHODS } from '../rpc/methods/pairing'
 import { sendRequest } from '../runtime-rpc-test-harness'
@@ -137,6 +138,7 @@ describe('mobile desktop relay: phone -> desktop -> server', () => {
         ...SSH_METHODS,
         ...RUNTIME_CLIENT_CAPABILITY_METHODS,
         ...CLIENT_UI_METHODS,
+        ...WORKTREE_METHODS,
         ...PAIRING_METHODS
       ],
       enableWebSocket: true,
@@ -462,7 +464,12 @@ describe('mobile desktop relay: phone -> desktop -> server', () => {
   })
 
   it('answers a targeted desktop-owned call on the desktop, exactly as the untargeted one', async () => {
-    const { desktop } = await startTopology()
+    const { host, desktop } = await startTopology()
+    vi.spyOn(host.runtime, 'getClientAgentLaunchSettings').mockReturnValue({
+      ...host.runtime.getClientAgentLaunchSettings(),
+      defaultTuiAgent: 'pi',
+      disabledTuiAgents: ['claude']
+    })
     const phone = await connectPhone(desktop.server, 'iPhone')
     const opensBefore = passthroughOpens.count
 
@@ -472,6 +479,17 @@ describe('mobile desktop relay: phone -> desktop -> server', () => {
     expect(isOk(targeted)).toBe(true)
     expect(targeted.result).toEqual((await phone.next('settings:untargeted')).result)
     expect(passthroughOpens.count).toBe(opensBefore)
+    phone.send('automation:policy', 'settings.getAgentLaunch', {})
+    expect(await phone.next('automation:policy')).toMatchObject({
+      ok: true,
+      result: { settings: { defaultTuiAgent: 'pi', disabledTuiAgents: ['claude'] } }
+    })
+    phone.send('automation:workspaces', 'worktree.list', {})
+    expect(await phone.next('automation:workspaces')).toMatchObject({
+      ok: true,
+      result: { worktrees: expect.any(Array) }
+    })
+    // An execution-host method under the same target still relays.
     phone.send('list', 'terminal.list', {})
     expect(isOk(await phone.next('list'))).toBe(true)
     expect(passthroughOpens.count).toBe(opensBefore + 1)

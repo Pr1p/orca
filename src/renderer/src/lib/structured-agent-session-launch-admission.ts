@@ -1,3 +1,4 @@
+import { terminalLaunchOpened } from '@/lib/launch-agent-in-new-tab-host-agents'
 import { toast } from 'sonner'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import type { ExecutionHostId } from '../../../shared/execution-host'
@@ -120,7 +121,12 @@ function notifyHostUnreachable(agent: TuiAgent, executionHostId: ExecutionHostId
 /** What the caller's own terminal launch would have carried beyond the plan's agent and prompt. */
 export type DeclinedStructuredLaunchTerminalOptions = Pick<
   LaunchAgentInNewTabArgs,
-  'agentArgs' | 'launchPlatform' | 'launchSource' | 'initialCwd' | 'activate'
+  | 'agentArgs'
+  | 'sessionOptionsYieldToAgentArgs'
+  | 'launchPlatform'
+  | 'launchSource'
+  | 'initialCwd'
+  | 'activate'
 >
 
 /** A caller with no terminal path of its own gets the one a new agent tab would open. */
@@ -131,11 +137,13 @@ export async function openDeclinedStructuredLaunchTerminal(args: {
   terminal?: DeclinedStructuredLaunchTerminalOptions
 }): Promise<StructuredLaunchTerminal> {
   // Loaded late: the new-tab launcher begins these launches.
-  const { launchAgentInNewTab } = await import('@/lib/launch-agent-in-new-tab')
-  const result = launchAgentInNewTab({
+  const { launchAgentInNewTabWithOutcome } = await import('@/lib/launch-agent-in-new-tab')
+  const result = launchAgentInNewTabWithOutcome({
     ...args.terminal,
     agent: args.plan.agent,
     worktreeId: args.worktreeId,
+    // The saved choice the chat would have seeded applies to its terminal as flags.
+    ...(args.plan.launchOptions ? { sessionOptions: args.plan.launchOptions } : {}),
     ...(args.targetGroupId ? { groupId: args.targetGroupId } : {}),
     ...(args.terminal?.activate !== false && args.plan.prompt ? { prompt: args.plan.prompt } : {}),
     ...(args.plan.promptDelivery ? { promptDelivery: args.plan.promptDelivery } : {}),
@@ -148,6 +156,9 @@ export async function openDeclinedStructuredLaunchTerminal(args: {
       worktreeId: args.worktreeId
     })
   })
+  if (result && 'refused' in result) {
+    return { opened: false, promptDeliveryResult: Promise.resolve(result.refused) }
+  }
   return {
     opened: result !== null,
     ...(result?.surface.kind === 'local-terminal' ? { tabId: result.surface.tabId } : {}),
@@ -201,7 +212,7 @@ export function beginHostAdmittedStructuredLaunch(args: {
   let admitted: AdmittedLaunch | null = null
   const isCancelled = (): boolean => cancelled || args.hooks.signal?.aborted === true
   let resolveDelivery: (result: StructuredPromptDeliveryResult) => void = () => undefined
-  const deliversPrompt = Boolean(plan.prompt?.trim()) && plan.promptDelivery !== 'draft'
+  const deliversPrompt = Boolean(plan.prompt?.trim())
   const promptDeliveryResult = deliversPrompt
     ? new Promise<StructuredPromptDeliveryResult>((resolve) => {
         resolveDelivery = resolve
@@ -266,14 +277,13 @@ export function beginHostAdmittedStructuredLaunch(args: {
           )
         }
         const terminal = await args.onHostDeclined(args.target)
-        if (paired && terminal.opened) {
+        const opened = await terminalLaunchOpened(terminal)
+        if (paired && opened) {
           notifyHostDeclined(plan.agent)
         }
-        void (
-          terminal.promptDeliveryResult ??
-          Promise.resolve(terminal.opened ? DELIVERED : NOT_DELIVERED)
-        ).then(resolveDelivery, () => resolveDelivery(NOT_DELIVERED))
-        return terminal.opened ? { kind: 'terminal' } : { kind: 'cancelled', sessionId: null }
+        const delivery = terminal.promptDeliveryResult ?? (opened ? DELIVERED : NOT_DELIVERED)
+        void Promise.resolve(delivery).then(resolveDelivery, () => resolveDelivery(NOT_DELIVERED))
+        return opened ? { kind: 'terminal' } : { kind: 'cancelled', sessionId: null }
       }
       // A host that would run the chat with more access than asked for gets nothing to start.
       const permission = paired

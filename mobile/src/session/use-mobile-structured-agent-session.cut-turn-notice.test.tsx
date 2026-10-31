@@ -7,7 +7,7 @@ import type { AgentSessionSubscribeEvent } from '../../../src/shared/agent-sessi
 import type { RpcClient } from '../transport/rpc-client'
 import type { RpcResponse } from '../transport/types'
 import { useMobileStructuredAgentSession } from './use-mobile-structured-agent-session'
-import { ANSWERED_PROMPT_ITEMS } from './mobile-native-chat-answered-prompts.test-fixture'
+import { ANSWERED_PROMPT_ITEMS } from './native-chat/input/mobile-native-chat-answered-prompts.test-fixture'
 
 vi.mock('@react-native-async-storage/async-storage', () => ({
   default: { getItem: vi.fn(async () => null), setItem: vi.fn(), removeItem: vi.fn() }
@@ -71,7 +71,9 @@ describe('useMobileStructuredAgentSession transcript', () => {
         _meta: { runtimeId: 'runtime-1' }
       })),
       subscribe: vi.fn((_method: string, _params: unknown, onData: (value: unknown) => void) => {
-        listener = onData
+        if (_method === 'agentSession.subscribe') {
+          listener = onData
+        }
         return () => {}
       })
     }

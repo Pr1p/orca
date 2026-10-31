@@ -58,10 +58,9 @@ describe('buildDispatchPreamble', () => {
       .split('\n')
       .filter((line) => line.trimStart().startsWith('orca orchestration'))
 
-    expect(commandLines).toHaveLength(6)
+    expect(commandLines).toHaveLength(3)
     expect(result).not.toContain('\\\n')
     expect(commandLines.filter((line) => line.includes('--type worker_done'))).toHaveLength(1)
-    expect(commandLines.filter((line) => line.includes('--type heartbeat'))).toHaveLength(1)
     expect(commandLines.filter((line) => line.includes('orchestration ask'))).toHaveLength(1)
     expect(commandLines.filter((line) => line.includes('--type escalation'))).toHaveLength(1)
   })
@@ -108,12 +107,9 @@ describe('buildDispatchPreamble', () => {
     expect(section).toContain('do NOT run a sleep/poll loop')
     expect(section).toContain('do NOT keep calling')
     expect(section).toContain('A direct instruction from the user takes precedence')
-    expect(section).toMatch(/follow it without coordinator approval or a\s+fresh Dispatch/)
-    expect(section).toMatch(
-      /do not send lifecycle messages using the settled task or\s+Dispatch IDs/
-    )
+    expect(section).toMatch(/do it without the settled task or\s+Dispatch IDs/)
     expect(section).toContain('Never refuse a direct user request because you were a worker')
-    expect(section).toMatch(/fresh\s+preamble \+ TASK block/)
+    expect(section).toMatch(/fresh preamble\s+and TASK block/)
     expect(section).not.toMatch(/2 minutes/)
     expect(section).not.toMatch(/10 minutes/)
     expect(section).not.toMatch(/may exit/)
@@ -150,6 +146,12 @@ describe('buildDispatchPreamble', () => {
     expect(result).toContain('orca-ide orchestration check')
     expect(result).toContain('orca-ide orchestration ask')
     expect(result).not.toMatch(/(^|\s)orca orchestration/m)
+  })
+
+  it('never mentions heartbeats', () => {
+    const result = buildDispatchPreamble(baseParams())
+    expect(result).not.toMatch(/heartbeat/i)
+    expect(cliFence(result)).toContain('orchestration ask')
   })
 
   it('appends a BASE DRIFT section when baseDrift.behind > 0', () => {
@@ -289,7 +291,7 @@ describe('how the preamble names the worker and its coordinator, by kind', () =>
       expect(chat).not.toContain('Exit the shell')
       expect(chat).not.toContain('Your terminal')
       expect(chat).toContain('return to an idle prompt')
-      expect(chat).toContain(`check --terminal ${SESSION_WORKER}`)
+      expect(chat).toContain(`--from ${SESSION_WORKER}`)
       expect(afterWorkerDoneSection(chat).trimEnd().endsWith(CHAT_REDISPATCH)).toBe(true)
     }
   })
