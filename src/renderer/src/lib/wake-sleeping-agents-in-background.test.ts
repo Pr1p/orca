@@ -43,6 +43,8 @@ let sleepingRecords: Record<
     tabId?: string
     restoreOnTabOpenOnly?: boolean
     agent?: string
+    capturedAt?: number
+    updatedAt?: number
     providerSession?: { key?: string; id?: string }
   }
 > = {}
@@ -213,14 +215,14 @@ describe('wakeSleepingAgentsForWorktreeInBackground', () => {
         tabId: 'tab-a',
         capturedAt: 1,
         updatedAt: 1
-      } as never,
+      },
       'tab-b:leaf-1': {
         worktreeId: 'wt-1',
         paneKey: 'tab-b:leaf-1',
         tabId: 'tab-b',
         capturedAt: 2,
         updatedAt: 2
-      } as never
+      }
     }
     isPassiveSpy.mockReturnValue(true)
     const rec = recordEvents()
@@ -242,14 +244,14 @@ describe('wakeSleepingAgentsForWorktreeInBackground', () => {
         tabId: 'missing-tab',
         capturedAt: 1,
         updatedAt: 1
-      } as never,
+      },
       'live-tab:leaf-1': {
         worktreeId: 'wt-1',
         paneKey: 'live-tab:leaf-1',
         tabId: 'live-tab',
         capturedAt: 2,
         updatedAt: 2
-      } as never
+      }
     }
     terminalTabsByWorktree = { 'wt-1': [{ id: 'live-tab' }] }
     isPassiveSpy.mockReturnValue(true)
@@ -274,7 +276,7 @@ describe('wakeSleepingAgentsForWorktreeInBackground', () => {
             tabId,
             capturedAt: index,
             updatedAt: index
-          } as never
+          }
         ]
       })
     )
@@ -301,7 +303,7 @@ describe('wakeSleepingAgentsForWorktreeInBackground', () => {
             updatedAt: index,
             providerSession: { key: 'session_id', id: `session-${index}` },
             restoreOnTabOpenOnly: true
-          } as never
+          }
         ]
       })
     )
@@ -353,7 +355,7 @@ describe('wakeSleepingAgentsForWorktreeInBackground', () => {
         updatedAt: 1,
         providerSession: { key: 'session_id', id: 'session-slept' },
         restoreOnTabOpenOnly: true
-      } as never,
+      },
       'tab-hibernated:leaf-1': {
         worktreeId: 'wt-1',
         paneKey: 'tab-hibernated:leaf-1',
@@ -361,7 +363,7 @@ describe('wakeSleepingAgentsForWorktreeInBackground', () => {
         capturedAt: 2,
         updatedAt: 2,
         providerSession: { key: 'session_id', id: 'session-hibernated' }
-      } as never
+      }
     }
     isPassiveSpy.mockReturnValue(true)
     const rec = recordEvents()
@@ -382,7 +384,7 @@ describe('wakeSleepingAgentsForWorktreeInBackground', () => {
         updatedAt: 1,
         providerSession: { key: 'session_id', id: 'session-shared' },
         restoreOnTabOpenOnly: true
-      } as never,
+      },
       'tab-hibernated:leaf-1': {
         worktreeId: 'wt-1',
         paneKey: 'tab-hibernated:leaf-1',
@@ -390,7 +392,7 @@ describe('wakeSleepingAgentsForWorktreeInBackground', () => {
         capturedAt: 2,
         updatedAt: 2,
         providerSession: { key: 'session_id', id: 'session-shared' }
-      } as never
+      }
     }
     isPassiveSpy.mockReturnValue(true)
     const rec = recordEvents()
@@ -435,7 +437,7 @@ describe('wakeSleepingAgentsForWorktreeInBackground', () => {
     // tells the resume sweep the pane owns its record, so no duplicate tab launches per open.
     expect(rec.events).toEqual(['wake:wt-1', 'mount:wt-1'])
     expect(rec.mountDetails[0]?.tabIds).toEqual(['tab-a'])
-    expect(hasSleepingAgentWakeRequest(sleepingRecords.k1 as never)).toBe(true)
+    expect(hasSleepingAgentWakeRequest(sleepingRecords.k1)).toBe(true)
   })
 
   it('does not wake-mark an explicit-sleep record sharing a tab with a targeted record', () => {
@@ -455,10 +457,10 @@ describe('wakeSleepingAgentsForWorktreeInBackground', () => {
     wakeSleepingAgentsForWorktreeInBackground('wt-1')
 
     rec.stop()
-    expect(hasSleepingAgentWakeRequest(sleepingRecords.k1 as never)).toBe(true)
+    expect(hasSleepingAgentWakeRequest(sleepingRecords.k1)).toBe(true)
     // Explicit sleep (#11598) stays asleep until its own tab opens, even when a sibling pane in the
     // same tab is targeted.
-    expect(hasSleepingAgentWakeRequest(sleepingRecords.k2 as never)).toBe(false)
+    expect(hasSleepingAgentWakeRequest(sleepingRecords.k2)).toBe(false)
   })
 
   it('wake-marks targeted records even when a passive record forces a whole-worktree mount', () => {
@@ -483,7 +485,7 @@ describe('wakeSleepingAgentsForWorktreeInBackground', () => {
     // The whole-worktree mount carries no tab IDs, so its dispatch marks nothing; the targeted
     // records must still be wake-marked or the sweep forks duplicates for them.
     expect(rec.mountDetails[0]?.tabIds).toBeUndefined()
-    expect(hasSleepingAgentWakeRequest(sleepingRecords.k1 as never)).toBe(true)
+    expect(hasSleepingAgentWakeRequest(sleepingRecords.k1)).toBe(true)
   })
 
   it('skips background-mount when only non-passive records exist and nothing launches', () => {
