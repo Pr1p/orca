@@ -56,7 +56,10 @@ import {
   createBackgroundSleepingAgentWakeDispatcher,
   wakeSleepingAgentsForWorktreeInBackground
 } from './wake-sleeping-agents-in-background'
-import { takeSleepingAgentWakeRequest } from './sleeping-agent-wake-requests'
+import {
+  hasSleepingAgentWakeRequest,
+  takeSleepingAgentWakeRequest
+} from './sleeping-agent-wake-requests'
 
 type RecordedEvents = {
   events: string[]
@@ -407,6 +410,22 @@ describe('wakeSleepingAgentsForWorktreeInBackground', () => {
     // activate:false tabs never mount otherwise; explicit background mount must give queued --resume a PTY.
     expect(rec.events).toEqual(['wake:wt-1', 'mount:wt-1'])
     expect(rec.mountDetails[0]?.tabIds).toEqual(['tab-new'])
+  })
+
+  it('background-mounts a non-passive record’s own tab so it resumes in place, not in a duplicate tab', () => {
+    sleepingRecords = { k1: { worktreeId: 'wt-1', paneKey: 'tab-a:leaf-1', tabId: 'tab-a' } }
+    terminalTabsByWorktree = { 'wt-1': [{ id: 'tab-a' }] }
+    isPassiveSpy.mockReturnValue(false)
+    const rec = recordEvents()
+
+    wakeSleepingAgentsForWorktreeInBackground('wt-1')
+
+    rec.stop()
+    // The pane's own tab is mounted so its pane cold-restores the record; the wake-on-mount mark
+    // tells the resume sweep the pane owns its record, so no duplicate tab launches per open.
+    expect(rec.events).toEqual(['wake:wt-1', 'mount:wt-1'])
+    expect(rec.mountDetails[0]?.tabIds).toEqual(['tab-a'])
+    expect(hasSleepingAgentWakeRequest(sleepingRecords.k1 as never)).toBe(true)
   })
 
   it('skips background-mount when only non-passive records exist and nothing launches', () => {
