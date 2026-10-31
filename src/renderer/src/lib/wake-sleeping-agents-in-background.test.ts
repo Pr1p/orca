@@ -35,7 +35,17 @@ vi.mock('./sleeping-agent-pane-ownership', () => ({
     `${record.worktreeId}\0${record.agent ?? 'agent'}\0${record.providerSession?.key ?? 'session_id'}\0${record.providerSession?.id ?? 'session'}`
 }))
 
-let sleepingRecords: Record<string, { worktreeId: string; paneKey: string; tabId?: string }> = {}
+let sleepingRecords: Record<
+  string,
+  {
+    worktreeId: string
+    paneKey: string
+    tabId?: string
+    restoreOnTabOpenOnly?: boolean
+    agent?: string
+    providerSession?: { key?: string; id?: string }
+  }
+> = {}
 let terminalTabsByWorktree: Record<string, { id: string }[]> = {}
 const clearSleepingAgentSessionsByPaneKey = vi.fn((paneKeys: readonly string[]) => {
   for (const paneKey of paneKeys) {
@@ -425,6 +435,54 @@ describe('wakeSleepingAgentsForWorktreeInBackground', () => {
     // tells the resume sweep the pane owns its record, so no duplicate tab launches per open.
     expect(rec.events).toEqual(['wake:wt-1', 'mount:wt-1'])
     expect(rec.mountDetails[0]?.tabIds).toEqual(['tab-a'])
+    expect(hasSleepingAgentWakeRequest(sleepingRecords.k1 as never)).toBe(true)
+  })
+
+  it('does not wake-mark an explicit-sleep record sharing a tab with a targeted record', () => {
+    sleepingRecords = {
+      k1: { worktreeId: 'wt-1', paneKey: 'tab-a:leaf-1', tabId: 'tab-a' },
+      k2: {
+        worktreeId: 'wt-1',
+        paneKey: 'tab-a:leaf-2',
+        tabId: 'tab-a',
+        restoreOnTabOpenOnly: true
+      }
+    }
+    terminalTabsByWorktree = { 'wt-1': [{ id: 'tab-a' }] }
+    isPassiveSpy.mockReturnValue(false)
+    const rec = recordEvents()
+
+    wakeSleepingAgentsForWorktreeInBackground('wt-1')
+
+    rec.stop()
+    expect(hasSleepingAgentWakeRequest(sleepingRecords.k1 as never)).toBe(true)
+    // Explicit sleep (#11598) stays asleep until its own tab opens, even when a sibling pane in the
+    // same tab is targeted.
+    expect(hasSleepingAgentWakeRequest(sleepingRecords.k2 as never)).toBe(false)
+  })
+
+  it('wake-marks targeted records even when a passive record forces a whole-worktree mount', () => {
+    sleepingRecords = {
+      // No tabId, distinct provider session: an untargetable passive record that cannot be
+      // canonicalized away behind k1's claim, forcing the whole-worktree mount path.
+      kPassive: {
+        worktreeId: 'wt-1',
+        paneKey: 'tab-x:leaf-9',
+        agent: 'codex',
+        providerSession: { key: 'session_id', id: 'passive-1' }
+      },
+      k1: { worktreeId: 'wt-1', paneKey: 'tab-a:leaf-1', tabId: 'tab-a' }
+    }
+    terminalTabsByWorktree = { 'wt-1': [{ id: 'tab-a' }] }
+    isPassiveSpy.mockImplementation((record: { paneKey: string }) => record.paneKey.includes('x'))
+    const rec = recordEvents()
+
+    wakeSleepingAgentsForWorktreeInBackground('wt-1')
+
+    rec.stop()
+    // The whole-worktree mount carries no tab IDs, so its dispatch marks nothing; the targeted
+    // records must still be wake-marked or the sweep forks duplicates for them.
+    expect(rec.mountDetails[0]?.tabIds).toBeUndefined()
     expect(hasSleepingAgentWakeRequest(sleepingRecords.k1 as never)).toBe(true)
   })
 
