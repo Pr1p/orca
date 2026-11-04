@@ -224,6 +224,14 @@ export class DaemonPtyAdapter extends DaemonPtyDaemonRecovery implements IPtyPro
           }
           return
         }
+        // Why: the daemon answers a write or resize for an id it never created with an unnamed exit.
+        const unpublished =
+          event.payload.incarnationId === undefined &&
+          currentIncarnationId === undefined &&
+          !this.hasPty(event.sessionId)
+        if (unpublished && !this.sessionsAwaitingDaemonRecovery.has(event.sessionId)) {
+          return
+        }
         // Every bridge exit marks a possible stop (unseen to the user; covers poweroff or --shutdown).
         if (wslDistro) {
           this.wslBridgeBootIdentity.noteExit(wslDistro)
