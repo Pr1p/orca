@@ -6,6 +6,7 @@ import {
 import { isOpaqueRemintedPaneKey } from '../../../../shared/pane-key-alias'
 import { isValidTerminalTabId } from '../../../../shared/workspace-layout/terminal-tab-id'
 import { LocalPtyProvider } from '../../../providers/local-pty/local-pty-provider'
+import { withClaudeResumeAccountConfigDir } from '../../../claude-accounts/claude-resume-account-config-dir'
 import { resolvePathEnvKey } from '../../../pty/environment/windows-path-segment-merge'
 import { routesFreshSpawnsToLocalProvider } from '../host-env/fresh-spawn-routing'
 import { parseValidPaneKey } from '../pane/key-state'
@@ -18,7 +19,12 @@ import { prepareAntigravityAccountForLaunch } from '../../../antigravity/native-
 export async function assemblePtyIpcSpawnEnv(ctx: PtyIpcSpawnState): Promise<void> {
   const args = ctx.args
   // Daemon providers bypass LocalPtyProvider environment assembly; inject the same host-local state here.
-  const baseEnvWithAuth = ctx.claudeAuth ? { ...args.env, ...ctx.claudeAuth.envPatch } : args.env
+  // A saved Claude resume re-enters the account its transcript lives under, not the active one (#24752).
+  const baseEnvWithAuth = withClaudeResumeAccountConfigDir(
+    ctx.claudeAuth ? { ...args.env, ...ctx.claudeAuth.envPatch } : args.env,
+    args.launchAgent,
+    args.resumeProviderSession
+  )
   const spawnPaneKey = baseEnvWithAuth?.ORCA_PANE_KEY
   const parsedSpawnPaneKey = parseValidPaneKey(spawnPaneKey)
   const verifiedPaneKey =

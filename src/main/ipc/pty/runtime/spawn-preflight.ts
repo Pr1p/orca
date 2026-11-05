@@ -1,4 +1,5 @@
 import { withClaudeProfileTerminalEnv } from '../../../claude-accounts/claude-profile-installed-router'
+import { withClaudeResumeAccountConfigDir } from '../../../claude-accounts/claude-resume-account-config-dir'
 import type { PtySpawnResult } from '../../../providers/pty-provider-contract'
 import { LocalPtyProvider } from '../../../providers/local-pty/local-pty-provider'
 import { isValidTerminalTabId } from '../../../../shared/workspace-layout/terminal-tab-id'
@@ -128,6 +129,8 @@ export async function prepareRuntimePtySpawn(
     }
   }
   ctx.env = ctx.claudeAuth ? { ...args.env, ...ctx.claudeAuth.envPatch } : args.env
+  // A saved Claude resume re-enters the account its transcript lives under, not the active one (#24752).
+  ctx.env = withClaudeResumeAccountConfigDir(ctx.env, args.launchAgent, args.resumeProviderSession)
   ctx.requestedAgentTeamsPath = ctx.env?.ORCA_AGENT_TEAMS_TEAM_ID
     ? ctx.env[resolvePathEnvKey(ctx.env, process.platform)]
     : undefined

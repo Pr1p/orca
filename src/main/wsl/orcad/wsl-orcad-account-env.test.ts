@@ -104,6 +104,28 @@ describe('withWslOrcadAccountEnv', () => {
     })
   })
 
+  it('routes a saved Claude resume to the account its transcript lives under, not the active one (#24752)', async () => {
+    const sessionHome = '/home/u/.local/share/orca/claude-profiles/7f7f1e7c/home'
+    const resumed = await run('terminal.create', {
+      worktree: 'id:wt',
+      command: 'claude --resume ea8dbad6',
+      launchAgent: 'claude',
+      resumeProviderSession: {
+        key: 'session_id',
+        id: 'ea8dbad6',
+        transcriptPath: `${sessionHome}/projects/-home-u-repo/ea8dbad6.jsonl`
+      }
+    })
+    expect(resumed).toMatchObject({
+      params: {
+        env: {
+          CLAUDE_CONFIG_DIR: sessionHome,
+          ORCA_CLAUDE_INJECTED_CONFIG_DIR: CLAUDE_HOME
+        }
+      }
+    })
+  })
+
   it('never turns a bare command or agent preset into a caller-built launch', async () => {
     const bare = { worktree: 'id:wt', command: 'claude' }
     await expect(run('terminal.create', bare)).resolves.toEqual({ ok: true, params: bare })

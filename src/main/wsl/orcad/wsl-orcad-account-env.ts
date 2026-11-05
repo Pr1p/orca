@@ -7,6 +7,7 @@ import {
 } from '../../../shared/agent-launch/startup/agent-launch-account-env'
 import { isTuiAgent } from '../../../shared/agent-launch/catalog/tui-agent-config'
 import type { TuiAgent } from '../../../shared/agent-launch/catalog/tui-agent'
+import { withClaudeResumeAccountConfigDir } from '../../claude-accounts/claude-resume-account-config-dir'
 import { parseWslUncPath } from '../../../shared/wsl-paths'
 import type { ClaudeRuntimeAuthPreparation } from '../../claude-accounts/runtime-auth/runtime-auth-types'
 import { AGENT_SESSION_ACCOUNT_ENV_RUNTIME_CAPABILITY } from '../../../shared/agent-session/agent-session-create-capabilities'
@@ -207,5 +208,16 @@ export async function withWslOrcadAccountEnv(
   if (plan.field === 'accountEnv') {
     return { ok: true, params: { ...params, accountEnv: env } }
   }
-  return { ok: true, params: { ...params, env: { ...stringRecord(params.env), ...env } } }
+  // A saved Claude resume re-enters the account its transcript lives under, not the active one (#24752).
+  return {
+    ok: true,
+    params: {
+      ...params,
+      env: withClaudeResumeAccountConfigDir(
+        { ...stringRecord(params.env), ...env },
+        plan.agent,
+        params.resumeProviderSession
+      )
+    }
+  }
 }
