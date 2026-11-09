@@ -36,7 +36,8 @@ export class Session extends SessionProcessInspection {
   private readonly initialOutput: ReturnType<typeof createSessionInitialOutput>
   private _disposed = false
   private readonly onSessionExit?: (code: number) => void
-  private readonly output: SessionOutputPlane
+  // Public for detached-idle reap candidacy (#40261); Session sits at its max-lines cap.
+  readonly output: SessionOutputPlane
   private readonly producerPause: SessionProducerPause
   private readonly shellReady: SessionShellReadyBarrier
   private readonly termination: SessionTerminationController

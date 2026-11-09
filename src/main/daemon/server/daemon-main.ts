@@ -1,5 +1,9 @@
 import { DaemonServer } from './daemon-server'
 import type { DaemonServerOptions } from './daemon-server-options'
+import {
+  DaemonDetachedSessionReaper,
+  resolveDetachedSessionReapMs
+} from './daemon-detached-session-reaper'
 import type { DaemonFileLog } from '../observability/daemon-file-log'
 import { readTerminalSpawnAdmissionArg } from '../admission/terminal-spawn-admission-mode'
 import { automaticWorkMarkerPathFor } from '../admission/automatic-work-run-marker-store'
@@ -29,6 +33,8 @@ export type DaemonStartOptions = {
   onRpcShutdown?: () => void
   onShutdownRequested?: () => void
   initialAdoptionTestConfig?: DaemonServerOptions['initialAdoptionTestConfig']
+  /** Direct-construction seam for the detached-session reap bound; env override loses to this. */
+  detachedSessionReapMs?: number
 }
 
 export type DaemonHandle = {
@@ -85,8 +91,18 @@ export async function startDaemon(opts: DaemonStartOptions): Promise<DaemonHandl
 
   await server.start()
 
+  const detachedSessionReaper = new DaemonDetachedSessionReaper({
+    host: server.host,
+    ...(opts.log ? { log: opts.log } : {}),
+    reapMs: opts.detachedSessionReapMs ?? resolveDetachedSessionReapMs()
+  })
+  detachedSessionReaper.start()
+
   return {
-    shutdown: () => server.shutdown(),
+    shutdown: () => {
+      detachedSessionReaper.dispose()
+      return server.shutdown()
+    },
     recordOrderlyExit: () => server.automaticWork.recordOrderlyExit(),
     recordStopRequested: () => server.automaticWork.recordStopRequested(),
     killLiveSessionGroupsSync: () => server.host.killLiveSessionGroupsSync()

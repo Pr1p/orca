@@ -45,6 +45,9 @@ export class SessionOutputPlane {
   private _outputSequence = 0
   private deviceAttributesQueryFilter: StartupDeviceAttributesQueryFilter | null = null
   private disposed = false
+  // #40261: a session no client owns and no PTY output touches is abandoned; time it from its last attachment.
+  private fullyDetachedSinceMs: number | null = performance.now()
+  private lastOutputAtMs: number | null = null
 
   constructor(opts: SessionOutputPlaneOptions) {
     const size = normalizePtySize(opts.cols, opts.rows)
@@ -75,6 +78,7 @@ export class SessionOutputPlane {
   attachClient(client: Omit<AttachedClient, 'token'>): symbol {
     const token = Symbol('attach')
     this.attachedClients.push({ token, ...client })
+    this.fullyDetachedSinceMs = null
     return token
   }
 
@@ -83,11 +87,15 @@ export class SessionOutputPlane {
     if (idx !== -1) {
       this.attachedClients.splice(idx, 1)
     }
+    if (this.attachedClients.length === 0) {
+      this.fullyDetachedSinceMs ??= performance.now()
+    }
   }
 
   /** The caller must release producer flow control separately. */
   clearClients(): void {
     this.attachedClients = []
+    this.fullyDetachedSinceMs ??= performance.now()
   }
 
   snapshotClients(): AttachedClient[] {
@@ -199,6 +207,7 @@ export class SessionOutputPlane {
   emit(emission: PtyIngressEmission): void {
     let { data } = emission
     const rawLength = emission.rawEndSeq - emission.rawStartSeq
+    this.lastOutputAtMs = performance.now()
     // Count raw input even when thinning drops bytes so snapshots and renderer tail deduplication align.
     this._outputSequence += rawLength
     if (data.length > 0) {
@@ -270,6 +279,14 @@ export class SessionOutputPlane {
   /** Invalidate the read surface without freeing the emulator yet. */
   markDisposed(): void {
     this.disposed = true
+  }
+
+  /** Ms since the last client left and output went silent; null while any client is attached. */
+  detachedIdleMs(now: number = performance.now()): number | null {
+    if (this.fullyDetachedSinceMs === null) {
+      return null
+    }
+    return now - Math.max(this.fullyDetachedSinceMs, this.lastOutputAtMs ?? 0)
   }
 
   disposeEmulator(): void {

@@ -64,3 +64,26 @@ export function hasLiveTerminalHostSessions(sessions: ReadonlyMap<string, Sessio
   }
   return hasLive
 }
+
+export type DetachedIdleTerminalHostSession = {
+  sessionId: string
+  idleMs: number
+}
+
+/** Reap candidates for #40261: alive, owned by no client, and silent for the given bound. */
+export function detachedIdleTerminalHostSessions(
+  sessions: ReadonlyMap<string, Session>,
+  idleBoundMs: number
+): DetachedIdleTerminalHostSession[] {
+  const result: DetachedIdleTerminalHostSession[] = []
+  for (const session of sessions.values()) {
+    if (!session.isAlive || session.isTerminating) {
+      continue
+    }
+    const idleMs = session.output.detachedIdleMs()
+    if (idleMs !== null && idleMs >= idleBoundMs) {
+      result.push({ sessionId: session.sessionId, idleMs })
+    }
+  }
+  return result
+}

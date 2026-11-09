@@ -25,7 +25,9 @@ import { resolveTerminalHostSessionCwd } from './terminal-host-session-cwd'
 import { TerminalHostTombstones } from './terminal-host-tombstones'
 import {
   listLiveTerminalHostSessions,
-  hasLiveTerminalHostSessions
+  hasLiveTerminalHostSessions,
+  detachedIdleTerminalHostSessions,
+  type DetachedIdleTerminalHostSession
 } from './terminal-host-session-listing'
 import { createOrAttachTerminalSession } from './terminal-host-session-create'
 import { TerminalAttachCanceledError } from '../protocol/daemon-errors'
@@ -309,6 +311,11 @@ export class TerminalHost {
 
   hasLiveSessions(): boolean {
     return hasLiveTerminalHostSessions(this.sessions)
+  }
+
+  /** Reap candidates (#40261): live sessions no client owns and no PTY output has touched. */
+  detachedIdleSessions(idleBoundMs: number): DetachedIdleTerminalHostSession[] {
+    return detachedIdleTerminalHostSessions(this.sessions, idleBoundMs)
   }
 
   /** Last resort when shutdown overruns its deadline: an async group sweep may not have signalled yet. */
