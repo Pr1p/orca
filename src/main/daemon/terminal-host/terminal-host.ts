@@ -313,9 +313,9 @@ export class TerminalHost {
     return hasLiveTerminalHostSessions(this.sessions)
   }
 
-  /** Reap candidates (#40261): live sessions no client owns and no PTY output has touched. */
-  detachedIdleSessions(idleBoundMs: number): DetachedIdleTerminalHostSession[] {
-    return detachedIdleTerminalHostSessions(this.sessions, idleBoundMs)
+  /** Idle readouts for #40261: live sessions no client owns; eligibility is the reaper's call. */
+  detachedIdleSessions(): DetachedIdleTerminalHostSession[] {
+    return detachedIdleTerminalHostSessions(this.sessions)
   }
 
   /** Last resort when shutdown overruns its deadline: an async group sweep may not have signalled yet. */

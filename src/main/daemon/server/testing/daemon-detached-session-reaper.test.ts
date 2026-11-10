@@ -16,8 +16,8 @@ import { SessionOutputPlane } from '../../sessions/session-output-plane'
 import type { TerminalHost } from '../../terminal-host/terminal-host'
 import type { SubprocessHandle } from '../../sessions/session-subprocess-handle'
 
-// Real timers with a tiny reap bound; the reaper polls at max(50ms, reapMs/10), so the whole
-// chain settles in a few hundred milliseconds without fake-timer coupling to daemon timeouts.
+// Real timers with a tiny reap bound; the reaper wakes on the reap deadline itself, so the whole
+// chain settles within a few hundred milliseconds.
 const REAP_BOUND_MS = 150
 
 function createMockSubprocess(): SubprocessHandle & {
@@ -46,15 +46,9 @@ function createMockSubprocess(): SubprocessHandle & {
   }
 }
 
-async function waitFor(predicate: () => boolean, label: string): Promise<void> {
-  const deadline = Date.now() + 5_000
-  while (!predicate()) {
-    if (Date.now() >= deadline) {
-      throw new Error(`Timed out waiting for ${label}`)
-    }
-    await new Promise((resolve) => setTimeout(resolve, 10))
-  }
-}
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 describe('detached idle session reaping (#40261)', () => {
   let directory: string
@@ -97,17 +91,15 @@ describe('detached idle session reaping (#40261)', () => {
     await client.request('createOrAttach', { sessionId: 'abandoned', cols: 80, rows: 24 })
 
     client.disconnect()
-    // The daemon must not retire while the session lives, even with no client connected.
-    await new Promise((resolve) => setTimeout(resolve, REAP_BOUND_MS * 2))
+    await vi.waitFor(() => expect(subprocess.kill).toHaveBeenCalled(), { timeout: 5_000 })
+    // The kill landed while the session still lives, and retirement still waited for its exit.
     expect(onIdleShutdown).not.toHaveBeenCalled()
-
-    await waitFor(() => subprocess.kill.mock.calls.length > 0, 'the abandoned session to be killed')
     expect(log).toHaveBeenCalledWith(
       'session-detached-reap',
       expect.objectContaining({ sessionId: 'abandoned' })
     )
     subprocess.exit(0)
-    await waitFor(() => onIdleShutdown.mock.calls.length === 1, 'daemon retirement')
+    await vi.waitFor(() => expect(onIdleShutdown).toHaveBeenCalledTimes(1), { timeout: 5_000 })
   })
 
   it('does not reap a detached session that keeps producing output', async () => {
@@ -127,14 +119,16 @@ describe('detached idle session reaping (#40261)', () => {
     const emitData = subprocess.onData.mock.calls[0]?.[0] as (data: string) => void
     expect(emitData).toBeTypeOf('function')
     // A working agent streams output; every byte restarts the idle clock.
+    // ast-grep-ignore: test-no-polling-loop -- spaced ticks deliberately span many wake deadlines, not a poll-until-true
     for (let i = 0; i < 15; i++) {
       emitData('tick')
+      // ast-grep-ignore: test-no-real-time-wait -- spaced ticks must each push the reap deadline past a later wake
       await new Promise((resolve) => setTimeout(resolve, 40))
     }
     expect(subprocess.kill).not.toHaveBeenCalled()
 
     emitData('done')
-    await waitFor(() => subprocess.kill.mock.calls.length > 0, 'the silent session to be killed')
+    await vi.waitFor(() => expect(subprocess.kill).toHaveBeenCalled(), { timeout: 5_000 })
     subprocess.exit(0)
   })
 
@@ -151,6 +145,7 @@ describe('detached idle session reaping (#40261)', () => {
     await client.ensureConnected()
     await client.request('createOrAttach', { sessionId: 'watched', cols: 80, rows: 24 })
 
+    // ast-grep-ignore: test-no-real-time-wait -- negative window: the reap deadline must pass while the client stays attached
     await new Promise((resolve) => setTimeout(resolve, REAP_BOUND_MS * 3))
     expect(subprocess.kill).not.toHaveBeenCalled()
     expect(onIdleShutdown).not.toHaveBeenCalled()
@@ -158,7 +153,7 @@ describe('detached idle session reaping (#40261)', () => {
 })
 
 describe('SessionOutputPlane detached idle clock', () => {
-  it('counts from the last full detachment and resets on output', async () => {
+  it('counts from the last full detachment and resets on output', () => {
     const plane = new SessionOutputPlane({ cols: 80, rows: 24 })
     // A session nobody ever attached is reap-eligible from birth.
     expect(plane.detachedIdleMs()).not.toBeNull()
@@ -167,21 +162,27 @@ describe('SessionOutputPlane detached idle clock', () => {
     expect(plane.detachedIdleMs()).toBeNull()
 
     plane.detachClient(token)
-    await new Promise((resolve) => setTimeout(resolve, 30))
-    const idleAfterDetach = plane.detachedIdleMs() ?? -1
-    expect(idleAfterDetach).toBeGreaterThanOrEqual(20)
+    const afterDetach = performance.now()
+    expect(plane.detachedIdleMs(afterDetach + 100)).toBeGreaterThanOrEqual(100)
 
-    // A detached session still producing output is working, not idle.
+    // A detached session still producing output is working, not idle: at one fixed probe time,
+    // moving the anchor to the emit strictly lowers the idle read.
+    const probe = performance.now() + 60_000
+    const idleBeforeOutput = plane.detachedIdleMs(probe) ?? -1
     plane.emit({ data: 'tick', rawStartSeq: 0, rawEndSeq: 4, transformed: false })
-    const idleAfterOutput = plane.detachedIdleMs() ?? -1
-    expect(idleAfterOutput).toBeLessThan(idleAfterDetach)
+    const idleAfterOutput = plane.detachedIdleMs(probe) ?? -1
+    expect(idleBeforeOutput).toBeGreaterThan(0)
+    expect(idleAfterOutput).toBeLessThan(idleBeforeOutput)
   })
 })
 
 describe('DaemonDetachedSessionReaper', () => {
-  it('kills and logs every candidate the host reports', () => {
+  it('kills and logs only candidates past the reap bound', () => {
     const host = {
-      detachedIdleSessions: () => [{ sessionId: 's1', idleMs: 3_700_000 }],
+      detachedIdleSessions: () => [
+        { sessionId: 's1', idleMs: 3_700_000 },
+        { sessionId: 'fresh', idleMs: 10 }
+      ],
       kill: vi.fn(() => Promise.resolve())
     } as unknown as TerminalHost
     const daemonLog = createNoopDaemonFileLog()
@@ -190,6 +191,7 @@ describe('DaemonDetachedSessionReaper', () => {
 
     reaper.sweep()
 
+    expect(host.kill).toHaveBeenCalledTimes(1)
     expect(host.kill).toHaveBeenCalledWith('s1')
     expect(log).toHaveBeenCalledWith('session-detached-reap', {
       sessionId: 's1',
@@ -209,6 +211,40 @@ describe('DaemonDetachedSessionReaper', () => {
 
     expect(host.detachedIdleSessions).not.toHaveBeenCalled()
     expect(host.kill).not.toHaveBeenCalled()
+  })
+
+  it('wakes exactly on the earliest reap deadline', () => {
+    vi.useFakeTimers()
+    const start = Date.now()
+    const host = {
+      detachedIdleSessions: () => [{ sessionId: 's1', idleMs: Date.now() - start }],
+      kill: vi.fn(() => Promise.resolve())
+    } as unknown as TerminalHost
+    const reaper = new DaemonDetachedSessionReaper({ host, reapMs: 1_000 })
+
+    reaper.start()
+    vi.advanceTimersByTime(999)
+    expect(host.kill).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+    expect(host.kill).toHaveBeenCalledTimes(1)
+
+    reaper.dispose()
+    vi.advanceTimersByTime(120_000)
+    expect(host.kill).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not retry a kill the host refused', async () => {
+    const host = {
+      detachedIdleSessions: () => [{ sessionId: 's1', idleMs: 5_000 }],
+      kill: vi.fn(() => Promise.reject(new Error('EPERM')))
+    } as unknown as TerminalHost
+    const reaper = new DaemonDetachedSessionReaper({ host, reapMs: 1_000 })
+
+    reaper.sweep()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    reaper.sweep()
+
+    expect(host.kill).toHaveBeenCalledTimes(1)
   })
 
   it('resolves the grace from ORCA_DAEMON_DETACHED_SESSION_REAP_MS', () => {

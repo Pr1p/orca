@@ -70,10 +70,9 @@ export type DetachedIdleTerminalHostSession = {
   idleMs: number
 }
 
-/** Reap candidates for #40261: alive, owned by no client, and silent for the given bound. */
+/** Idle readouts for #40261: alive sessions owned by no client; eligibility is the reaper's call. */
 export function detachedIdleTerminalHostSessions(
-  sessions: ReadonlyMap<string, Session>,
-  idleBoundMs: number
+  sessions: ReadonlyMap<string, Session>
 ): DetachedIdleTerminalHostSession[] {
   const result: DetachedIdleTerminalHostSession[] = []
   for (const session of sessions.values()) {
@@ -81,7 +80,7 @@ export function detachedIdleTerminalHostSessions(
       continue
     }
     const idleMs = session.output.detachedIdleMs()
-    if (idleMs !== null && idleMs >= idleBoundMs) {
+    if (idleMs !== null) {
       result.push({ sessionId: session.sessionId, idleMs })
     }
   }
