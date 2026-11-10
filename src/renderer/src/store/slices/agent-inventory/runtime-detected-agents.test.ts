@@ -64,7 +64,10 @@ describe('workspace agent detection on a host without workspace-scoped detection
     ])
 
     expect(agentCalls()).toEqual([
-      expect.objectContaining({ method: 'preflight.detectAgents', params: { worktreeId: 'wt-1' } })
+      expect.objectContaining({
+        method: 'preflight.detectAgents',
+        params: { worktreeId: 'wt-1', enabledOnly: true }
+      })
     ])
     expect(store.getState().runtimeDetectedAgentIds[KEY]).toEqual(['codex'])
     expect(store.getState().runtimeAgentDetectionNeedsServerUpdate[KEY]).toBeUndefined()

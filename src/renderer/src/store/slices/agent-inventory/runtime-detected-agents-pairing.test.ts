@@ -74,7 +74,7 @@ describe('runtime detection across a re-pair', () => {
     expect(rpc.call).toHaveBeenCalledWith(
       { kind: 'environment', environmentId: 'detection-peer' },
       'preflight.detectAgents',
-      { worktreeId: 'repo::/workspace' },
+      { worktreeId: 'repo::/workspace', enabledOnly: true },
       { expectedEnvironmentPairingRevision: 1 }
     )
     expect(store.getState().runtimeDetectedAgentIds[WORKSPACE_KEY]).toBeUndefined()
