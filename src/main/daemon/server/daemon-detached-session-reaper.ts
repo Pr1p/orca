@@ -15,7 +15,7 @@ export function resolveDetachedSessionReapMs(env: NodeJS.ProcessEnv = process.en
 }
 
 type DaemonDetachedSessionReaperOptions = {
-  host: TerminalHost
+  host: Pick<TerminalHost, 'detachedIdleSessions' | 'kill'>
   log?: DaemonFileLog
   reapMs?: number
 }

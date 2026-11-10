@@ -13,7 +13,6 @@ import {
 import { getDaemonSocketPath } from '../../launch/daemon-spawner'
 import { createNoopDaemonFileLog } from '../../observability/daemon-file-log'
 import { SessionOutputPlane } from '../../sessions/session-output-plane'
-import type { TerminalHost } from '../../terminal-host/terminal-host'
 import type { SubprocessHandle } from '../../sessions/session-subprocess-handle'
 
 // Real timers with a tiny reap bound; the reaper wakes on the reap deadline itself, so the whole
@@ -116,18 +115,18 @@ describe('detached idle session reaping (#40261)', () => {
     await client.request('createOrAttach', { sessionId: 'still-working', cols: 80, rows: 24 })
     client.disconnect()
 
-    const emitData = subprocess.onData.mock.calls[0]?.[0] as (data: string) => void
+    const emitData: ((data: string) => void) | undefined = subprocess.onData.mock.calls[0]?.[0]
     expect(emitData).toBeTypeOf('function')
     // A working agent streams output; every byte restarts the idle clock.
     // ast-grep-ignore: test-no-polling-loop -- spaced ticks deliberately span many wake deadlines, not a poll-until-true
     for (let i = 0; i < 15; i++) {
-      emitData('tick')
+      emitData?.('tick')
       // ast-grep-ignore: test-no-real-time-wait -- spaced ticks must each push the reap deadline past a later wake
       await new Promise((resolve) => setTimeout(resolve, 40))
     }
     expect(subprocess.kill).not.toHaveBeenCalled()
 
-    emitData('done')
+    emitData?.('done')
     await vi.waitFor(() => expect(subprocess.kill).toHaveBeenCalled(), { timeout: 5_000 })
     subprocess.exit(0)
   })
@@ -184,7 +183,7 @@ describe('DaemonDetachedSessionReaper', () => {
         { sessionId: 'fresh', idleMs: 10 }
       ],
       kill: vi.fn(() => Promise.resolve())
-    } as unknown as TerminalHost
+    }
     const daemonLog = createNoopDaemonFileLog()
     const log = vi.spyOn(daemonLog, 'log')
     const reaper = new DaemonDetachedSessionReaper({ host, log: daemonLog, reapMs: 1_000 })
@@ -203,7 +202,7 @@ describe('DaemonDetachedSessionReaper', () => {
     const host = {
       detachedIdleSessions: vi.fn(),
       kill: vi.fn()
-    } as unknown as TerminalHost
+    }
     const reaper = new DaemonDetachedSessionReaper({ host, reapMs: 0 })
 
     reaper.start()
@@ -219,7 +218,7 @@ describe('DaemonDetachedSessionReaper', () => {
     const host = {
       detachedIdleSessions: () => [{ sessionId: 's1', idleMs: Date.now() - start }],
       kill: vi.fn(() => Promise.resolve())
-    } as unknown as TerminalHost
+    }
     const reaper = new DaemonDetachedSessionReaper({ host, reapMs: 1_000 })
 
     reaper.start()
@@ -237,7 +236,7 @@ describe('DaemonDetachedSessionReaper', () => {
     const host = {
       detachedIdleSessions: () => [{ sessionId: 's1', idleMs: 5_000 }],
       kill: vi.fn(() => Promise.reject(new Error('EPERM')))
-    } as unknown as TerminalHost
+    }
     const reaper = new DaemonDetachedSessionReaper({ host, reapMs: 1_000 })
 
     reaper.sweep()
