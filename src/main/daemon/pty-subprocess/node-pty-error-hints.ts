@@ -23,6 +23,11 @@ const PTY_ALLOCATION_STEPS = new Set([
   'open_slave'
 ])
 
+// A watcher-thread creation failure is by nature a process/thread limit hit (#40326).
+const PROCESS_LIMIT_STEPS = new Set(['pthread_create', 'thread_create'])
+
+const SPAWN_LIMIT_STEPS = new Set(['posix_spawn', 'forkpty'])
+
 const RESOURCE_EXHAUSTION_ERRNOS = new Set([
   6, // ENXIO on macOS: posix_openpt could not provide a usable pty device
   11, // EAGAIN on Linux
@@ -49,13 +54,16 @@ export function getNodePtyRecoveryHint(diagnostic: NodePtyDiagnostic): string | 
   if (diagnostic.step === 'posix_spawn' && diagnostic.errno === 2) {
     return "Daemon's node-pty install is gone (worktree deleted?). Restart Orca."
   }
+  if (PROCESS_LIMIT_STEPS.has(diagnostic.step)) {
+    return TERMINAL_PROCESS_LIMIT_HINT
+  }
   if (
     PTY_ALLOCATION_STEPS.has(diagnostic.step) &&
     RESOURCE_EXHAUSTION_ERRNOS.has(diagnostic.errno)
   ) {
     return PTY_ALLOCATION_HINT
   }
-  if (diagnostic.step === 'posix_spawn' && RESOURCE_EXHAUSTION_ERRNOS.has(diagnostic.errno)) {
+  if (SPAWN_LIMIT_STEPS.has(diagnostic.step) && RESOURCE_EXHAUSTION_ERRNOS.has(diagnostic.errno)) {
     return TERMINAL_PROCESS_LIMIT_HINT
   }
   return null
