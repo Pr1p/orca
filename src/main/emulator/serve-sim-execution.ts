@@ -199,12 +199,15 @@ export async function execServeSimCommand(
   }
   if (result.code !== 0 || result.timedOut) {
     const message = result.stdout || result.stderr || 'serve-sim command failed'
-    // Why: serve-sim also says "not running" for a missing camera helper; that needs its own message.
-    if (/no serve-sim server/i.test(message)) {
+    // Why line-anchored: serve-sim failures reject as unhandled rejections whose stack dump
+    // prints the whole minified bundle line, embedding "No serve-sim server running." inside
+    // unrelated errors — substring matching then masks real failures (e.g. fold rejection)
+    // as emulator_no_active (#40509).
+    if (/^no serve-sim server running\./im.test(message) && !/^error:/im.test(message)) {
       // Keep serve-sim's own line so the real cause is not masked by the no-active hint (#40509).
       const detail = message
         .split('\n')
-        .find((line) => /no serve-sim server/i.test(line))
+        .find((line) => /^no serve-sim server running\./i.test(line))
         ?.trim()
       throw new EmulatorError(
         'emulator_no_active',

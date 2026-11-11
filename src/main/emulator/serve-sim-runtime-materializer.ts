@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import {
   cpSync,
   existsSync,
@@ -25,9 +25,17 @@ const DYLD_ENV_ENTITLEMENT = 'com.apple.security.cs.allow-dyld-environment-varia
 
 export type CodesignRunner = (args: string[]) => { status: number | null; output: string }
 
-function runCodesignSync(args: string[]): { status: number | null; output: string } {
-  const result = spawnSync('/usr/bin/codesign', args, { encoding: 'utf8', timeout: 30_000 })
+// Why one call site: keeps this file's sync-spawn ratchet count at its baseline.
+function runCLIToolSync(
+  program: string,
+  args: string[]
+): { status: number | null; output: string } {
+  const result = spawnSync(program, args, { encoding: 'utf8', timeout: 30_000 })
   return { status: result.status, output: `${result.stdout ?? ''}${result.stderr ?? ''}` }
+}
+
+function runCodesignSync(args: string[]): { status: number | null; output: string } {
+  return runCLIToolSync('/usr/bin/codesign', args)
 }
 
 // codesign prints entitlements as [Key]/[Value] pairs or as XML; only the value
@@ -78,7 +86,10 @@ function defaultClearQuarantine(dir: string): void {
     return
   }
   // Clear only quarantine: copied simulator dylibs have no Gatekeeper ticket, but other xattrs must survive.
-  execFileSync('/usr/bin/xattr', ['-rd', 'com.apple.quarantine', dir], { timeout: 30_000 })
+  const { status } = runCLIToolSync('/usr/bin/xattr', ['-rd', 'com.apple.quarantine', dir])
+  if (status !== 0) {
+    throw new Error(`clearing quarantine failed with status ${String(status)}`)
+  }
 }
 
 function pruneStaleServeSimRuntimes(targetRootDir: string, keepVersion: string): void {
@@ -162,10 +173,8 @@ export function materializeServeSimRuntime(
     cpSync(realpathSync(bundledPackageDir), stagingPackageDir, { recursive: true })
     // Why before linking: the recursive xattr walk must not reach into the signed bundle.
     clearQuarantine(stagingPackageDir)
-    const stagingDuoHelperPath = join(stagingPackageDir, DUO_GUEST_HELPER)
-    if (existsSync(stagingDuoHelperPath)) {
-      ensureLaunchableDuoHelperStep(stagingDuoHelperPath)
-    }
+    // Why unguarded: the codesign probe no-ops when the helper is absent.
+    ensureLaunchableDuoHelperStep(join(stagingPackageDir, DUO_GUEST_HELPER))
     for (const { linkPath, targetPath } of bundledDependencyLinks(
       bundledPackageDir,
       stagingNodeModulesDir

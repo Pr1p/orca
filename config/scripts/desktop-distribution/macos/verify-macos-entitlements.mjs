@@ -8,7 +8,8 @@ const repoRoot = resolve(__dirname, '../../../..')
 
 const defaultPlists = [
   'resources/build/entitlements.mac.plist',
-  'resources/build/entitlements.computer-use.mac.plist'
+  'resources/build/entitlements.computer-use.mac.plist',
+  'resources/build/entitlements.serve-sim-guest.mac.plist'
 ]
 
 const plistPaths = process.argv.slice(2)

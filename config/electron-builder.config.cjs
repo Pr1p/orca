@@ -206,6 +206,20 @@ const rpmElectronRuntimeDependencies = [
 const MARKDOWN_FILE_EXTENSIONS = ['md', 'markdown', 'mdx']
 const TABULAR_FILE_EXTENSIONS = ['csv', 'tsv']
 
+// serve-sim guest helpers are IOSSIMULATOR binaries launched via `simctl spawn`, which supplies
+// DYLD_ROOT_PATH through the environment. Hardened runtime strips DYLD_* env vars, so the
+// default app signing (runtime + inherited entitlements) aborts them at dyld (#40509). They are
+// signIgnore'd here and re-signed in afterPack with allow-dyld-environment-variables.
+const SERVE_SIM_MAC_GUEST_HELPERS = ['simduo/serve-sim-duo-hid', 'simax/serve-sim-ax-settings']
+const serveSimGuestMacSignIgnore = [
+  new RegExp(`serve-sim/dist/(${SERVE_SIM_MAC_GUEST_HELPERS.map(escapeRegExpLiteral).join('|')})$`)
+    .source
+]
+
+function escapeRegExpLiteral(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 // Config loads without unused Windows addons; beforePack enforces target natives. Only @vscode/windows-process-tree has os:win32; workspace links prove no binary exists.
 const windowsRuntimeResources = existsSync(
   join(__dirname, '..', 'node_modules', '@vscode', 'windows-process-tree', 'package.json')
@@ -534,6 +548,16 @@ module.exports = {
         'orca-process-footprint',
         context.packager
       )
+      // Guest helpers must carry allow-dyld-environment-variables or simctl's DYLD_ROOT_PATH
+      // never reaches dyld and iPhone Duo fold/accessibility commands abort (#40509).
+      for (const guestHelper of SERVE_SIM_MAC_GUEST_HELPERS) {
+        await signMacStandaloneHelper(
+          join(resourcesDir, 'node_modules', 'serve-sim', 'dist', ...guestHelper.split('/')),
+          `serve-sim guest ${guestHelper}`,
+          context.packager,
+          resolve(__dirname, '../resources/build/entitlements.serve-sim-guest.mac.plist')
+        )
+      }
       await packageMacTerminalHost(join(resourcesDir, '..', '..'), context)
     }
   },
@@ -620,6 +644,8 @@ module.exports = {
       ...orcadTemplateMacSignIgnore,
       // afterPack signs it before the orcad template hashes it.
       '/Contents/Resources/agent-browser-darwin-[^/]+$',
+      // afterPack re-signs these with allow-dyld-environment-variables (#40509).
+      ...serveSimGuestMacSignIgnore,
       ...macTerminalHostSignIgnore
     ],
     extendInfo: macUsageDescriptions,
