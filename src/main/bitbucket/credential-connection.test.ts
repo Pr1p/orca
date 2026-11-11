@@ -106,4 +106,25 @@ describe('Bitbucket credential connection', () => {
     expect(result.ok).toBe(false)
     expect(fetchSpy).not.toHaveBeenCalled()
   })
+
+  // A repo-scoped token authenticates (curl on /repositories works) but cannot read /user,
+  // which Bitbucket answers with 403 — not the 401 of an invalid credential (#40476).
+  it('accepts a credential Bitbucket authorizes without user-read scope and saves it', async () => {
+    const conn = await loadModule()
+    globalThis.fetch = vi.fn(
+      async () => new Response(null, { status: 403 })
+    ) as unknown as typeof fetch
+
+    const result = await conn.connectBitbucket({
+      authMode: 'basic',
+      email: 'ada@example.com',
+      apiToken: 'repo-only-token'
+    })
+    expect(result).toEqual({ ok: true, account: null })
+    expect(conn.getBitbucketConnectionStatus()).toMatchObject({
+      source: 'stored',
+      account: null,
+      authMode: 'basic'
+    })
+  })
 })

@@ -11,8 +11,9 @@ export type RawBitbucketUser = {
 
 /** Network, server and decode failures do not prove the credentials are invalid. */
 export type BitbucketUserResult =
-  | { ok: true; user: RawBitbucketUser }
-  | { ok: false; reason: 'rejected' | 'unreachable' }
+  // A null user means the credential authenticated but the token lacks the scope to read /user;
+  // repository and pull-request access can still work (#40476).
+  { ok: true; user: RawBitbucketUser | null } | { ok: false; reason: 'rejected' | 'unreachable' }
 
 export function accountNameFromUser(user: RawBitbucketUser | null): string | null {
   return user?.username ?? user?.display_name ?? user?.account_id ?? null
@@ -37,8 +38,15 @@ export async function fetchBitbucketUserResult(
   }
   if (!response.ok) {
     await cancelUnreadResponseBody(response)
-    const rejected = response.status === 401 || response.status === 403
-    return { ok: false, reason: rejected ? 'rejected' : 'unreachable' }
+    // Bitbucket 401s invalid credentials; a 403 proves the pair authenticated and only the
+    // scope is missing, so the credential is usable for repo endpoints (#40476).
+    if (response.status === 401) {
+      return { ok: false, reason: 'rejected' }
+    }
+    if (response.status === 403) {
+      return { ok: true, user: null }
+    }
+    return { ok: false, reason: 'unreachable' }
   }
   try {
     return { ok: true, user: (await response.json()) as RawBitbucketUser }
