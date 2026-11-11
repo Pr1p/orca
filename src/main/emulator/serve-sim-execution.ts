@@ -201,9 +201,14 @@ export async function execServeSimCommand(
     const message = result.stdout || result.stderr || 'serve-sim command failed'
     // Why: serve-sim also says "not running" for a missing camera helper; that needs its own message.
     if (/no serve-sim server/i.test(message)) {
+      // Keep serve-sim's own line so the real cause is not masked by the no-active hint (#40509).
+      const detail = message
+        .split('\n')
+        .find((line) => /no serve-sim server/i.test(line))
+        ?.trim()
       throw new EmulatorError(
         'emulator_no_active',
-        'No active emulator for this worktree — use orca emulator devices/attach or open the pane'
+        `No active emulator for this worktree — use orca emulator devices/attach or open the pane${detail ? ` (serve-sim: ${detail})` : ''}`
       )
     }
     throw new EmulatorError('emulator_error', message)

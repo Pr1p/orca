@@ -14,14 +14,19 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runProcess } from '@orca/process-host'
-import { materializeServeSimRuntime } from './serve-sim-runtime-materializer'
+import {
+  ensureLaunchableDuoHelper,
+  materializeServeSimRuntime
+} from './serve-sim-runtime-materializer'
 
 const DYLIB_CONTENT = Buffer.from('signed-simcam-dylib-mach-o-bytes')
+const DUO_HID_CONTENT = Buffer.from('duo-guest-helper-mach-o-bytes')
 
 async function createBundledServeSimPackage(root: string): Promise<string> {
   const nodeModulesDir = join(root, 'bundle', 'node_modules')
   const packageDir = join(nodeModulesDir, 'serve-sim')
   await mkdir(join(packageDir, 'dist', 'simcam'), { recursive: true })
+  await mkdir(join(packageDir, 'dist', 'simduo'), { recursive: true })
   await mkdir(join(nodeModulesDir, 'ws'), { recursive: true })
   await writeFile(join(nodeModulesDir, 'ws', 'package.json'), '{"name":"ws"}')
   await writeFile(
@@ -33,6 +38,9 @@ async function createBundledServeSimPackage(root: string): Promise<string> {
     mode: 0o644
   })
   await writeFile(join(packageDir, 'dist', 'simcam', 'serve-sim-camera-helper'), 'helper', {
+    mode: 0o755
+  })
+  await writeFile(join(packageDir, 'dist', 'simduo', 'serve-sim-duo-hid'), DUO_HID_CONTENT, {
     mode: 0o755
   })
   return packageDir
@@ -145,6 +153,36 @@ describe('materializeServeSimRuntime', () => {
     expect(seenEntries[0].slice(1)).toEqual(['serve-sim'])
   })
 
+  it('re-signs the copied Duo guest helper in staging and skips an already-current runtime', async () => {
+    const root = await createRoot()
+    const bundledPackageDir = await createBundledServeSimPackage(root)
+    const seenHelpers: string[] = []
+
+    const materialize = () =>
+      materializeServeSimRuntime({
+        bundledPackageDir,
+        targetRootDir: join(root, 'runtime'),
+        version: '1.2.3',
+        clearQuarantine: () => {},
+        ensureLaunchableDuoHelper: (helperPath) => {
+          seenHelpers.push(helperPath)
+        }
+      })
+
+    const materialized = materialize()
+    expect(materialized).toBe(join(root, 'runtime', '1.2.3', 'node_modules', 'serve-sim'))
+    expect(seenHelpers).toHaveLength(1)
+    expect(seenHelpers[0]).toMatch(
+      /\.staging-1\.2\.3-\d+[/\\]node_modules[/\\]serve-sim[/\\]dist[/\\]simduo[/\\]serve-sim-duo-hid$/
+    )
+    expect(await readFile(join(materialized!, 'dist', 'simduo', 'serve-sim-duo-hid'))).toEqual(
+      DUO_HID_CONTENT
+    )
+
+    materialize()
+    expect(seenHelpers).toHaveLength(1)
+  })
+
   it('rebuilds when the app moved and the dependency links dangle', async () => {
     const root = await createRoot()
     const bundledPackageDir = await createBundledServeSimPackage(root)
@@ -203,5 +241,72 @@ describe('materializeServeSimRuntime', () => {
 
     expect(result.stderr).toBe('')
     expect(result.code).toBe(0)
+  })
+})
+
+// `codesign -d --verbose=2 --entitlements -` output shapes: flags come from the
+// CodeDirectory line, entitlements as [Key]/[Value] pairs or XML.
+const HARDENED_CODEDIRECTORY =
+  'CodeDirectory v=20500 size=342 flags=0x10002(adhoc,runtime) hashes=4+2 location=embedded'
+const LINKER_SIGNED_CODEDIRECTORY =
+  'CodeDirectory v=20400 size=342 flags=0x20002(adhoc,linker-signed) hashes=8+0 location=embedded'
+const dyldEntitlements = (allowDyld: boolean) =>
+  `${HARDENED_CODEDIRECTORY}\n[Dict]\n\t[Key] com.apple.security.cs.allow-dyld-environment-variables\n\t[Value]\n\t\t[Bool] ${allowDyld}`
+
+describe('ensureLaunchableDuoHelper', () => {
+  const helperPath = join('runtime', 'serve-sim', 'dist', 'simduo', 'serve-sim-duo-hid')
+
+  function fakeCodesign(probe: { status: number | null; output: string }, signStatus = 0) {
+    const calls: string[][] = []
+    return {
+      calls,
+      runCodesign: (args: string[]) => {
+        calls.push(args)
+        return args[0] === '-d' ? probe : { status: signStatus, output: '' }
+      }
+    }
+  }
+
+  it('re-signs a hardened helper lacking the dyld-environment entitlement', () => {
+    const { calls, runCodesign } = fakeCodesign({ status: 0, output: HARDENED_CODEDIRECTORY })
+    ensureLaunchableDuoHelper(helperPath, runCodesign)
+    expect(calls[1]).toEqual(['--force', '--sign', '-', helperPath])
+  })
+
+  it('re-signs when the dyld-environment entitlement is explicitly false', () => {
+    for (const output of [
+      dyldEntitlements(false),
+      `${HARDENED_CODEDIRECTORY}\n<plist><dict><key>com.apple.security.cs.allow-dyld-environment-variables</key><false/></dict></plist>`
+    ]) {
+      const { calls, runCodesign } = fakeCodesign({ status: 0, output })
+      ensureLaunchableDuoHelper(helperPath, runCodesign)
+      expect(calls.some((args) => args[0] === '--force')).toBe(true)
+    }
+  })
+
+  it('keeps a helper that already launches: linker-signed, or hardened with the entitlement', () => {
+    for (const output of [
+      LINKER_SIGNED_CODEDIRECTORY,
+      dyldEntitlements(true),
+      `${HARDENED_CODEDIRECTORY}\n<plist><dict><key>com.apple.security.cs.allow-dyld-environment-variables</key><true/></dict></plist>`
+    ]) {
+      const { calls, runCodesign } = fakeCodesign({ status: 0, output })
+      ensureLaunchableDuoHelper(helperPath, runCodesign)
+      expect(calls).toEqual([['-d', '--verbose=2', '--entitlements', '-', helperPath]])
+    }
+  })
+
+  it('leaves the helper alone and never throws when codesign cannot answer', () => {
+    for (const probe of [
+      { status: 1, output: 'code object is not signed at all' },
+      { status: null, output: '' }
+    ]) {
+      const { calls, runCodesign } = fakeCodesign(probe)
+      ensureLaunchableDuoHelper(helperPath, runCodesign)
+      expect(calls).toHaveLength(1)
+    }
+
+    const failingSign = fakeCodesign({ status: 0, output: HARDENED_CODEDIRECTORY }, 1)
+    expect(() => ensureLaunchableDuoHelper(helperPath, failingSign.runCodesign)).not.toThrow()
   })
 })

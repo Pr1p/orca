@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import {
   cpSync,
   existsSync,
@@ -17,6 +17,60 @@ export type ServeSimRuntimeMaterializerOptions = {
   targetRootDir: string
   version: string
   clearQuarantine?: (dir: string) => void
+  ensureLaunchableDuoHelper?: (helperPath: string) => void
+}
+
+const DUO_GUEST_HELPER = join('dist', 'simduo', 'serve-sim-duo-hid')
+const DYLD_ENV_ENTITLEMENT = 'com.apple.security.cs.allow-dyld-environment-variables'
+
+export type CodesignRunner = (args: string[]) => { status: number | null; output: string }
+
+function runCodesignSync(args: string[]): { status: number | null; output: string } {
+  const result = spawnSync('/usr/bin/codesign', args, { encoding: 'utf8', timeout: 30_000 })
+  return { status: result.status, output: `${result.stdout ?? ''}${result.stderr ?? ''}` }
+}
+
+// codesign prints entitlements as [Key]/[Value] pairs or as XML; only the value
+// directly after the key counts.
+function allowsDyldEnvironment(codesignOutput: string): boolean {
+  const at = codesignOutput.indexOf(DYLD_ENV_ENTITLEMENT)
+  if (at === -1) {
+    return false
+  }
+  const value = /^\s*(?:\[Value\]\s*\[Bool\]\s*(\w+)|<\/key>\s*<(\w+)\s*\/>)/.exec(
+    codesignOutput.slice(at + DYLD_ENV_ENTITLEMENT.length)
+  )
+  return (value?.[1] ?? value?.[2]) === 'true'
+}
+
+// Why: simctl spawn passes DYLD_ROOT_PATH to the guest helper, but a hardened-runtime
+// signature without the dyld-environment entitlement makes dyld drop it (#40509).
+function signatureDropsDyldEnvironment(codesignOutput: string): boolean {
+  const flags = /flags=0x[0-9a-f]+\(([^)]*)\)/i.exec(codesignOutput)?.[1]?.split(',') ?? []
+  return flags.includes('runtime') && !allowsDyldEnvironment(codesignOutput)
+}
+
+/** Ad-hoc re-signs the staging copy when its signature would strip DYLD_* variables. Never throws. */
+export function ensureLaunchableDuoHelper(
+  helperPath: string,
+  runCodesign: CodesignRunner = runCodesignSync
+): void {
+  try {
+    const probe = runCodesign(['-d', '--verbose=2', '--entitlements', '-', helperPath])
+    if (probe.status !== 0 || !signatureDropsDyldEnvironment(probe.output)) {
+      return
+    }
+    runCodesign(['--force', '--sign', '-', helperPath])
+  } catch {
+    // A signature we cannot fix must not fail materialization.
+  }
+}
+
+function defaultEnsureLaunchableDuoHelper(helperPath: string): void {
+  if (process.platform !== 'darwin') {
+    return
+  }
+  ensureLaunchableDuoHelper(helperPath)
 }
 
 function defaultClearQuarantine(dir: string): void {
@@ -89,6 +143,8 @@ export function materializeServeSimRuntime(
 ): string | null {
   const { bundledPackageDir, targetRootDir, version } = options
   const clearQuarantine = options.clearQuarantine ?? defaultClearQuarantine
+  const ensureLaunchableDuoHelperStep =
+    options.ensureLaunchableDuoHelper ?? defaultEnsureLaunchableDuoHelper
   const targetDir = join(targetRootDir, version)
   const packageDir = join(targetDir, 'node_modules', 'serve-sim')
   if (isMaterializedRuntimeCurrent(bundledPackageDir, targetDir)) {
@@ -106,6 +162,10 @@ export function materializeServeSimRuntime(
     cpSync(realpathSync(bundledPackageDir), stagingPackageDir, { recursive: true })
     // Why before linking: the recursive xattr walk must not reach into the signed bundle.
     clearQuarantine(stagingPackageDir)
+    const stagingDuoHelperPath = join(stagingPackageDir, DUO_GUEST_HELPER)
+    if (existsSync(stagingDuoHelperPath)) {
+      ensureLaunchableDuoHelperStep(stagingDuoHelperPath)
+    }
     for (const { linkPath, targetPath } of bundledDependencyLinks(
       bundledPackageDir,
       stagingNodeModulesDir
