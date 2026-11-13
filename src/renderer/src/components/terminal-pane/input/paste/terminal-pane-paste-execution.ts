@@ -60,7 +60,7 @@ export function createTerminalPanePasteExecution(
   const isKeyboardOwnedPasteSource = (source: TerminalPasteSource): boolean =>
     source === 'keyboard' || source === 'paste-event' || source === 'app-menu'
 
-  // Why: menu accelerators and native paste events never run keydown's active-pane repair, so a keyboard-owned paste must aim at the pane owning the dispatch focus instead of a stale active pane that would cancel it as a focus change (#41352). Resolve once, before preparing clipboard data, so preparation and execution share one target pane.
+  // Why: menu accelerators and native paste events never run keydown's active-pane repair, so a keyboard-owned paste must aim at the pane owning the dispatch focus instead of a stale active pane that would cancel it as a focus change (#41352). Resolve once at dispatch; clipboard paths must keep that resolution through execution, because re-resolving after the async clipboard read can pick a different pane when the terminal-element lookup misses and the manager's active pane changed mid-read.
   const resolveKeyboardOwnedPasteTargetPane = (
     pane: ManagedPane,
     source: TerminalPasteSource,
@@ -75,15 +75,14 @@ export function createTerminalPanePasteExecution(
       : pane
   }
 
-  const executePanePasteText = async (
-    pane: ManagedPane,
+  const pasteTextIntoResolvedPane = async (
+    targetPane: ManagedPane,
     source: TerminalPasteSource,
     activeElementAtDispatch: Element | null,
     text: string,
     options?: TerminalPasteTextOptions
   ): Promise<void> => {
     const keyboardOwnedPaste = isKeyboardOwnedPasteSource(source)
-    const targetPane = resolveKeyboardOwnedPasteTargetPane(pane, source, activeElementAtDispatch)
     const transport = paneTransportsRef.current.get(targetPane.id)
     const ptyId = transport?.getPtyId() ?? null
     const execution = await pasteTextIntoTerminalPane({
@@ -123,6 +122,22 @@ export function createTerminalPanePasteExecution(
       scheduleImagePasteWebglAtlasRecovery()
     }
   }
+
+  // Public entry point for direct callers that pass a pane; clipboard flows call pasteTextIntoResolvedPane with their dispatch-time target.
+  const executePanePasteText = (
+    pane: ManagedPane,
+    source: TerminalPasteSource,
+    activeElementAtDispatch: Element | null,
+    text: string,
+    options?: TerminalPasteTextOptions
+  ): Promise<void> =>
+    pasteTextIntoResolvedPane(
+      resolveKeyboardOwnedPasteTargetPane(pane, source, activeElementAtDispatch),
+      source,
+      activeElementAtDispatch,
+      text,
+      options
+    )
 
   // Resolve per pane/PTY host: Windows Codex needs input-record newlines even beside other protocols.
   const resolvePaneProtectedMultilinePasteOptions = (
@@ -180,7 +195,7 @@ export function createTerminalPanePasteExecution(
       runtimeEnvironmentId,
       protectedMultilineTextPasteOptions: resolvePaneProtectedMultilinePasteOptions(targetPane),
       pasteText: (text, options) =>
-        executePanePasteText(targetPane, source, activeElementAtDispatch, text, options),
+        pasteTextIntoResolvedPane(targetPane, source, activeElementAtDispatch, text, options),
       onTextPasteError: () =>
         setTerminalError('Paste failed: clipboard text is too large for a safe terminal paste.'),
       onImagePasteError: (error) => setTerminalError(formatClipboardImagePasteError(error))
@@ -193,6 +208,7 @@ export function createTerminalPanePasteExecution(
     createPaneClipboardCopiedFiles,
     executePanePasteText,
     pasteFromClipboard,
+    pasteTextIntoResolvedPane,
     resolveKeyboardOwnedPasteTargetPane,
     resolvePaneProtectedMultilinePasteOptions
   }

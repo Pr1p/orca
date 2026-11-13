@@ -40,8 +40,8 @@ export function registerTerminalPanePasteListeners({
   const { keybindings, managerRef, paneTransportsRef, setTerminalError, worktreeId } = controller
   const {
     createPaneClipboardCopiedFiles,
-    executePanePasteText,
     pasteFromClipboard,
+    pasteTextIntoResolvedPane,
     resolveKeyboardOwnedPasteTargetPane,
     resolvePaneProtectedMultilinePasteOptions
   } = execution
@@ -197,7 +197,7 @@ export function registerTerminalPanePasteListeners({
       runtimeEnvironmentId,
       protectedMultilineTextPasteOptions: resolvePaneProtectedMultilinePasteOptions(targetPane),
       pasteText: (text, options) =>
-        executePanePasteText(targetPane, 'app-menu', activeElementAtDispatch, text, options),
+        pasteTextIntoResolvedPane(targetPane, 'app-menu', activeElementAtDispatch, text, options),
       onTextPasteError: () =>
         setTerminalError('Paste failed: clipboard text is too large for a safe terminal paste.'),
       onImagePasteError: (error) => setTerminalError(formatClipboardImagePasteError(error))

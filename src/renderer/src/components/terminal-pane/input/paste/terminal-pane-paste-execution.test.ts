@@ -150,4 +150,54 @@ describe('createTerminalPanePasteExecution keyboard-owned paste targeting', () =
     const args = vi.mocked(pasteTerminalClipboard).mock.calls[0][0]
     expect(args.runtimeEnvironmentId).toBe('env-2')
   })
+
+  it('keeps the dispatch-time target pane when the active pane changes during the clipboard read (#41352)', async () => {
+    Object.assign(window, {
+      api: {
+        ui: {
+          readClipboardText: vi.fn(),
+          readClipboardFilePaths: vi.fn(),
+          clipboardHasImage: vi.fn(),
+          saveClipboardImageAsTempFile: vi.fn()
+        }
+      }
+    })
+    const overlay = document.createElement('div')
+    overlay.tabIndex = -1
+    paneB.container.appendChild(overlay)
+    overlay.focus()
+    let activePane: FakePane = paneB
+    const transports = new Map(
+      [paneA, paneB].map((pane) => [
+        pane.id,
+        { getPtyId: () => `pty-${pane.id}`, isConnected: () => true }
+      ])
+    )
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: stub supplies exactly the controller fields createTerminalPanePasteExecution destructures.
+    const controller = {
+      cwd: '/tmp',
+      forceBracketedMultilineTextPaste: false,
+      managerRef: {
+        current: { getPanes: () => [paneA, paneB], getActivePane: () => activePane }
+      },
+      paneTransportsRef: { current: transports },
+      setTerminalError,
+      tabId: 'tab-1',
+      worktreeId: 'wt-1'
+    } as unknown as TerminalPaneCloseController
+    const execution = createTerminalPanePasteExecution(controller, 'darwin')
+    vi.mocked(pasteTerminalClipboard).mockImplementationOnce(async (args) => {
+      activePane = paneA
+      await args.pasteText(PASTE_TEXT)
+      return { status: 'pasted', kind: 'text' }
+    })
+    execution.pasteFromClipboard(
+      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: fake pane supplies the id/leafId/container/terminal subset this path reads.
+      paneB as unknown as ManagedPane,
+      'keyboard'
+    )
+    await vi.waitFor(() => expect(paneB.terminal.paste).toHaveBeenCalledWith(PASTE_TEXT))
+    expect(paneA.terminal.paste).not.toHaveBeenCalled()
+    expect(setTerminalError).not.toHaveBeenCalled()
+  })
 })
