@@ -42,6 +42,7 @@ export function registerTerminalPanePasteListeners({
     createPaneClipboardCopiedFiles,
     executePanePasteText,
     pasteFromClipboard,
+    resolveKeyboardOwnedPasteTargetPane,
     resolvePaneProtectedMultilinePasteOptions
   } = execution
   let suppressNextNativePaste = false
@@ -177,21 +178,26 @@ export function registerTerminalPanePasteListeners({
     if (!pane) {
       return
     }
+    const targetPane = resolveKeyboardOwnedPasteTargetPane(
+      pane,
+      'app-menu',
+      activeElementAtDispatch
+    )
     const connectionId = getConnectionId(worktreeId) ?? null
     const runtimeEnvironmentId = resolveTerminalPasteRuntimeEnvironmentId(
       useAppStore.getState(),
       worktreeId,
-      paneTransportsRef.current.get(pane.id)
+      paneTransportsRef.current.get(targetPane.id)
     )
     void pasteTerminalClipboard({
       readClipboardText: window.api.ui.readClipboardText,
       saveClipboardImageAsTempFile: window.api.ui.saveClipboardImageAsTempFile,
-      copiedFiles: createPaneClipboardCopiedFiles(pane),
+      copiedFiles: createPaneClipboardCopiedFiles(targetPane),
       connectionId,
       runtimeEnvironmentId,
-      protectedMultilineTextPasteOptions: resolvePaneProtectedMultilinePasteOptions(pane),
+      protectedMultilineTextPasteOptions: resolvePaneProtectedMultilinePasteOptions(targetPane),
       pasteText: (text, options) =>
-        executePanePasteText(pane, 'app-menu', activeElementAtDispatch, text, options),
+        executePanePasteText(targetPane, 'app-menu', activeElementAtDispatch, text, options),
       onTextPasteError: () =>
         setTerminalError('Paste failed: clipboard text is too large for a safe terminal paste.'),
       onImagePasteError: (error) => setTerminalError(formatClipboardImagePasteError(error))

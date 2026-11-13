@@ -57,6 +57,24 @@ export function createTerminalPanePasteExecution(
       ptyId
     })
 
+  const isKeyboardOwnedPasteSource = (source: TerminalPasteSource): boolean =>
+    source === 'keyboard' || source === 'paste-event' || source === 'app-menu'
+
+  // Why: menu accelerators and native paste events never run keydown's active-pane repair, so a keyboard-owned paste must aim at the pane owning the dispatch focus instead of a stale active pane that would cancel it as a focus change (#41352). Resolve once, before preparing clipboard data, so preparation and execution share one target pane.
+  const resolveKeyboardOwnedPasteTargetPane = (
+    pane: ManagedPane,
+    source: TerminalPasteSource,
+    activeElementAtDispatch: Element | null
+  ): ManagedPane => {
+    if (!isKeyboardOwnedPasteSource(source)) {
+      return pane
+    }
+    const manager = managerRef.current
+    return manager && activeElementAtDispatch instanceof Element
+      ? (resolveTerminalKeyboardPane(manager, activeElementAtDispatch) ?? pane)
+      : pane
+  }
+
   const executePanePasteText = async (
     pane: ManagedPane,
     source: TerminalPasteSource,
@@ -64,13 +82,8 @@ export function createTerminalPanePasteExecution(
     text: string,
     options?: TerminalPasteTextOptions
   ): Promise<void> => {
-    const keyboardOwnedPaste =
-      source === 'keyboard' || source === 'paste-event' || source === 'app-menu'
-    // Why: menu accelerators and native paste events never run keydown's active-pane repair, so aim a keyboard-owned paste at the pane owning the dispatch focus instead of a stale active pane that would cancel it as a focus change (#41352).
-    const targetPane =
-      keyboardOwnedPaste && activeElementAtDispatch instanceof Element && managerRef.current
-        ? (resolveTerminalKeyboardPane(managerRef.current, activeElementAtDispatch) ?? pane)
-        : pane
+    const keyboardOwnedPaste = isKeyboardOwnedPasteSource(source)
+    const targetPane = resolveKeyboardOwnedPasteTargetPane(pane, source, activeElementAtDispatch)
     const transport = paneTransportsRef.current.get(targetPane.id)
     const ptyId = transport?.getPtyId() ?? null
     const execution = await pasteTextIntoTerminalPane({
@@ -151,22 +164,23 @@ export function createTerminalPanePasteExecution(
     readClipboardText: (options?: ReadClipboardTextOptions) => Promise<string> = window.api.ui
       .readClipboardText
   ): void => {
+    const activeElementAtDispatch = document.activeElement
+    const targetPane = resolveKeyboardOwnedPasteTargetPane(pane, source, activeElementAtDispatch)
     const connectionId = getConnectionId(worktreeId) ?? null
     const runtimeEnvironmentId = resolveTerminalPasteRuntimeEnvironmentId(
       useAppStore.getState(),
       worktreeId,
-      paneTransportsRef.current.get(pane.id)
+      paneTransportsRef.current.get(targetPane.id)
     )
-    const activeElementAtDispatch = document.activeElement
     void pasteTerminalClipboard({
       readClipboardText,
       saveClipboardImageAsTempFile: window.api.ui.saveClipboardImageAsTempFile,
-      copiedFiles: createPaneClipboardCopiedFiles(pane),
+      copiedFiles: createPaneClipboardCopiedFiles(targetPane),
       connectionId,
       runtimeEnvironmentId,
-      protectedMultilineTextPasteOptions: resolvePaneProtectedMultilinePasteOptions(pane),
+      protectedMultilineTextPasteOptions: resolvePaneProtectedMultilinePasteOptions(targetPane),
       pasteText: (text, options) =>
-        executePanePasteText(pane, source, activeElementAtDispatch, text, options),
+        executePanePasteText(targetPane, source, activeElementAtDispatch, text, options),
       onTextPasteError: () =>
         setTerminalError('Paste failed: clipboard text is too large for a safe terminal paste.'),
       onImagePasteError: (error) => setTerminalError(formatClipboardImagePasteError(error))
@@ -179,6 +193,7 @@ export function createTerminalPanePasteExecution(
     createPaneClipboardCopiedFiles,
     executePanePasteText,
     pasteFromClipboard,
+    resolveKeyboardOwnedPasteTargetPane,
     resolvePaneProtectedMultilinePasteOptions
   }
 }

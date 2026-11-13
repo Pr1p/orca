@@ -2,10 +2,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ManagedPane } from '@/lib/pane-manager/pane-manager-types'
 import type { TerminalPaneCloseController } from '../../layout/close/use-terminal-pane-close-actions'
+import { pasteTerminalClipboard } from '../../clipboard/terminal-clipboard-paste'
 import { createTerminalPanePasteExecution } from './terminal-pane-paste-execution'
 
 vi.mock('@/store/index', () => ({
-  useAppStore: { getState: () => ({ recordTerminalInput: vi.fn() }) }
+  useAppStore: {
+    getState: () => ({
+      recordTerminalInput: vi.fn(),
+      agentStatusByPaneKey: {},
+      paneForegroundAgentByPaneKey: {},
+      runtimeStatusByEnvironmentId: new Map()
+    })
+  }
+}))
+
+vi.mock('../../clipboard/terminal-clipboard-paste', () => ({
+  pasteTerminalClipboard: vi.fn(async () => undefined)
 }))
 
 type FakePane = {
@@ -64,12 +76,13 @@ describe('createTerminalPanePasteExecution keyboard-owned paste targeting', () =
   })
 
   function createExecution(
-    activePane: FakePane
+    activePane: FakePane,
+    ptyIdFor: (paneId: number) => string = (id) => `pty-${id}`
   ): ReturnType<typeof createTerminalPanePasteExecution> {
     const transports = new Map(
       [paneA, paneB].map((pane) => [
         pane.id,
-        { getPtyId: () => `pty-${pane.id}`, isConnected: () => true }
+        { getPtyId: () => ptyIdFor(pane.id), isConnected: () => true }
       ])
     )
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: stub supplies exactly the controller fields createTerminalPanePasteExecution destructures.
@@ -113,5 +126,28 @@ describe('createTerminalPanePasteExecution keyboard-owned paste targeting', () =
     expect(paneA.terminal.paste).toHaveBeenCalledWith(PASTE_TEXT)
     expect(paneB.terminal.paste).not.toHaveBeenCalled()
     expect(setTerminalError).not.toHaveBeenCalled()
+  })
+
+  it('prepares clipboard paste data for the pane owning dispatch focus, not a stale active pane (#41352)', () => {
+    Object.assign(window, {
+      api: {
+        ui: {
+          readClipboardText: vi.fn(),
+          readClipboardFilePaths: vi.fn(),
+          clipboardHasImage: vi.fn(),
+          saveClipboardImageAsTempFile: vi.fn()
+        }
+      }
+    })
+    paneB.textarea.focus()
+    const execution = createExecution(paneA, (id) => `remote:env-${id}@@pty-${id}`)
+    execution.pasteFromClipboard(
+      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: fake pane supplies the id/leafId/container/terminal subset this path reads.
+      paneA as unknown as ManagedPane,
+      'keyboard'
+    )
+    expect(vi.mocked(pasteTerminalClipboard)).toHaveBeenCalledTimes(1)
+    const args = vi.mocked(pasteTerminalClipboard).mock.calls[0][0]
+    expect(args.runtimeEnvironmentId).toBe('env-2')
   })
 })
