@@ -7,7 +7,7 @@ import {
   AccountRuntimeToggle,
   CodexRestartStatusPrompt
 } from '../composition/StatusBarAccountControls'
-import { AccountUsageGauge } from './AccountUsageGauge'
+import { AccountUsageWindowsGauge } from './AccountUsageGauge'
 import {
   InlineUsageSignInAction,
   InlineUsageSkeleton,
@@ -119,14 +119,18 @@ export function CodexSwitcherMenu({
     active: boolean,
     inactiveUsage: (typeof rows)[number]['inactiveUsage']
   ): React.ReactNode {
-    if (active) {
-      return <AccountUsageGauge limits={codex} isFetching={codex.status === 'fetching'} />
+    // Why: rows follow this desktop's codexTarget, so a remote owner's usage could land on the wrong row.
+    if (active && !hasActiveRuntimeEnvironment) {
+      return <AccountUsageWindowsGauge limits={codex} isFetching={codex.status === 'fetching'} />
     }
     if (inactiveUsage?.isFetching && !inactiveUsage.rateLimits) {
       return <InlineUsageSkeleton />
     }
     return inactiveUsage?.rateLimits ? (
-      <AccountUsageGauge limits={inactiveUsage.rateLimits} isFetching={inactiveUsage.isFetching} />
+      <AccountUsageWindowsGauge
+        limits={inactiveUsage.rateLimits}
+        isFetching={inactiveUsage.isFetching}
+      />
     ) : null
   }
 
