@@ -41,6 +41,8 @@ beforeEach(async () => {
     GIT_SSH_COMMAND: undefined,
     GIT_SSH_VARIANT: undefined,
     // The guard keeps a caller's askpass, and Git Bash exports its own SSH_ASKPASS.
+    // Clear both spellings: either one left in place would be preserved by the guard.
+    GIT_ASKPASS: undefined,
     SSH_ASKPASS: undefined
   }
   await writeFile(
@@ -54,6 +56,8 @@ beforeEach(async () => {
   vi.stubEnv('GIT_SSH', undefined)
   vi.stubEnv('GIT_SSH_COMMAND', undefined)
   vi.stubEnv('GIT_SSH_VARIANT', undefined)
+  vi.stubEnv('GIT_ASKPASS', undefined)
+  vi.stubEnv('SSH_ASKPASS', undefined)
 })
 
 afterEach(async () => {
