@@ -143,8 +143,11 @@ describe('system SSH operation aborts', () => {
     ])
 
     expect(outcome).toBe('AbortError')
-    expect(tarCreate.kill).toHaveBeenCalledTimes(1)
-    expect(sshExtract.kill).toHaveBeenCalledTimes(1)
+    // Whether the abort lands before or after the Windows tar probe, every child that spawned
+    // must be killed: counting kills alone would also pass if a child were abandoned.
+    const spawned = spawnMock.mock.calls.length > 0 ? 1 : 0
+    expect(tarCreate.kill).toHaveBeenCalledTimes(spawned)
+    expect(sshExtract.kill).toHaveBeenCalledTimes(spawned)
   })
 
   it('rejects remote file writes when aborted even if ssh never closes', async () => {

@@ -1,12 +1,20 @@
 import { EventEmitter } from 'node:events'
+import type * as ProcessTreeTermination from '@orca/process-host/process-tree-termination'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { resetSshConnectionMocks } from './testing/ssh-connection-test-harness'
 import { createCallbacks, createTarget } from './testing/ssh-connection-test-fixtures'
 import { SshConnection } from './ssh-connection'
 
-const { startForwardMock, waitForwardMock } = vi.hoisted(() => ({
+const { startForwardMock, waitForwardMock, signalTreeMock } = vi.hoisted(() => ({
   startForwardMock: vi.fn(),
-  waitForwardMock: vi.fn()
+  waitForwardMock: vi.fn(),
+  signalTreeMock: vi.fn(async () => true)
+}))
+
+// Windows must stop a forward through its process tree; a plain kill leaves ProxyCommand running.
+vi.mock('@orca/process-host/process-tree-termination', async (importOriginal) => ({
+  ...(await importOriginal<typeof ProcessTreeTermination>()),
+  signalProcessTree: signalTreeMock
 }))
 
 vi.mock('../authentication/ssh2-module-load', async () =>
@@ -58,6 +66,7 @@ describe('pending real loopback route startup ownership', () => {
     resetSshConnectionMocks()
     startForwardMock.mockReset()
     waitForwardMock.mockReset()
+    signalTreeMock.mockClear()
   })
   it('cancels the superseded forward and disposes the replacement on disconnect', async () => {
     const createForward = () => ({
@@ -70,9 +79,6 @@ describe('pending real loopback route startup ownership', () => {
       localPort: 50001,
       dispose: vi.fn()
     })
-    // Windows stops a forward through a process-tree kill instead of dispose.
-    const stopped = (forward: ReturnType<typeof createForward>) =>
-      process.platform === 'win32' ? forward.process.kill : forward.dispose
     const stale = createForward()
     const current = createForward()
     startForwardMock.mockResolvedValueOnce(stale).mockResolvedValueOnce(current)
@@ -88,13 +94,22 @@ describe('pending real loopback route startup ownership', () => {
     await vi.waitFor(() => expect(waitForwardMock).toHaveBeenCalledTimes(1))
     await conn.reconnect()
     await vi.waitFor(() => expect(waitForwardMock).toHaveBeenCalledTimes(2))
-    expect(stopped(stale)).toHaveBeenCalledTimes(1)
-    expect(stopped(current)).not.toHaveBeenCalled()
+    // A superseded start still settles on its own promise, so its stop lands a tick later.
+    // Windows stops through the process tree, so observe that path rather than any kill.
+    const stopped = (forward: ReturnType<typeof createForward>) =>
+      process.platform === 'win32'
+        ? {
+            times: () =>
+              signalTreeMock.mock.calls.filter(([process]) => process === forward.process).length
+          }
+        : forward.dispose
+    await vi.waitFor(() => expect(stopped(stale).times()).toBe(1))
+    expect(stopped(current).times()).toBe(0)
     failures[0]?.(new Error('superseded handshake'))
     await Promise.resolve()
     await Promise.resolve()
     await conn.disconnect()
-    expect(stopped(current)).toHaveBeenCalledTimes(1)
+    expect(stopped(current).times()).toBe(1)
     failures[1]?.(new Error('disconnected handshake'))
     await Promise.resolve()
     expect(conn.getSystemSshBuildArgsOptions().loopbackRoute).toBeUndefined()
