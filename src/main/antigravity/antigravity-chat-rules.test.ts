@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
-import { expect, it, onTestFinished, vi } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { z } from 'zod'
 import fixture from '../acp/fixtures/antigravity-v1.4.1-options.json'
 import type { InitializeResponse } from '../acp/generated/acp-protocol.generated'
@@ -39,78 +39,89 @@ async function workspace() {
   return { root, home, repo, read }
 }
 
-it('includes global and repository ancestors once, refreshes on reopen, and excludes outer rules', async () => {
-  const { root, home, repo, read } = await workspace()
-  const child = join(repo, 'nested')
-  await fs.mkdir(child)
-  await fs.writeFile(join(repo, '.git'), 'gitdir: elsewhere')
-  await fs.writeFile(join(root, 'GEMINI.md'), 'OUTSIDE')
-  await fs.writeFile(join(home, '.gemini', 'GEMINI.md'), 'GLOBAL')
-  await fs.writeFile(join(repo, 'GEMINI.md'), 'REPOSITORY')
-  await fs.symlink(join(repo, 'GEMINI.md'), join(repo, 'AGENTS.md'))
-  await fs.writeFile(join(child, 'AGENTS.md'), 'NESTED')
-  expect(await read(child)).toMatch(/GLOBAL[\s\S]*REPOSITORY[\s\S]*NESTED/)
-  expect((await read(child)).match(/REPOSITORY/g)).toHaveLength(1)
-  expect(await read(child)).not.toContain('OUTSIDE')
-  await fs.writeFile(join(child, 'AGENTS.md'), 'CHANGED')
-  expect(await read(child)).toContain('CHANGED')
-  expect(await read(child)).not.toContain('NESTED')
-})
-
-it('limits a folder workspace to its own rules and skips I/O without the advertised capability', async () => {
-  const { root, repo, read } = await workspace()
-  await fs.writeFile(join(root, 'AGENTS.md'), 'OUTSIDE')
-  await fs.writeFile(join(repo, 'GEMINI.md'), 'FOLDER')
-  const stat = vi.mocked(fs.stat)
-  const actualStat = stat.getMockImplementation()!
-  // Model a folder outside Git even when the system temp directory has a Git ancestor.
-  stat.mockImplementation(async (...args) => {
-    if (basename(String(args[0])) === '.git') {
-      throw new Error('No repository marker')
-    }
-    return actualStat(...args)
-  })
-  onTestFinished(() => {
-    stat.mockImplementation(actualStat)
-  })
-  const append = await read()
-  expect(append).toContain('FOLDER')
-  expect(append).not.toContain('OUTSIDE')
-  vi.clearAllMocks()
-  expect(await read(repo, { ...fixture.initialize, agentCapabilities: {} })).toBe('')
-  expect(fs.stat).not.toHaveBeenCalled()
-  expect(fs.realpath).not.toHaveBeenCalled()
-})
-
-it.each([
-  { name: 'inline', global: 'GLOBAL_RULE', internal: 'INTERNAL_RULE', filler: 'FILLER' },
-  {
-    name: 'saturated',
-    global: 'GLOBAL_RULE\n'.repeat(3_000),
-    internal: 'INTERNAL_RULE\n'.repeat(3_000),
-    filler: 'FILLER\n'.repeat(4_000)
+// Both cases stage rule files as links, and a file link needs the symlink privilege on
+// Windows; the precedence they assert is only reachable through those links.
+it.skipIf(process.platform === 'win32')(
+  'includes global and repository ancestors once, refreshes on reopen, and excludes outer rules',
+  async () => {
+    const { root, home, repo, read } = await workspace()
+    const child = join(repo, 'nested')
+    await fs.mkdir(child)
+    await fs.writeFile(join(repo, '.git'), 'gitdir: elsewhere')
+    await fs.writeFile(join(root, 'GEMINI.md'), 'OUTSIDE')
+    await fs.writeFile(join(home, '.gemini', 'GEMINI.md'), 'GLOBAL')
+    await fs.writeFile(join(repo, 'GEMINI.md'), 'REPOSITORY')
+    await fs.symlink(join(repo, 'GEMINI.md'), join(repo, 'AGENTS.md'))
+    await fs.writeFile(join(child, 'AGENTS.md'), 'NESTED')
+    expect(await read(child)).toMatch(/GLOBAL[\s\S]*REPOSITORY[\s\S]*NESTED/)
+    expect((await read(child)).match(/REPOSITORY/g)).toHaveLength(1)
+    expect(await read(child)).not.toContain('OUTSIDE')
+    await fs.writeFile(join(child, 'AGENTS.md'), 'CHANGED')
+    expect(await read(child)).toContain('CHANGED')
+    expect(await read(child)).not.toContain('NESTED')
   }
-])('excludes outside workspace links before reads or pointers when $name', async (contents) => {
-  const { root, home, repo, read } = await workspace()
-  const child = join(repo, 'nested')
-  await fs.mkdir(child)
-  await fs.mkdir(join(repo, '.git'))
-  const global = join(root, 'global-instructions')
-  const outside = join(root, 'outside-instructions')
-  const inside = join(repo, 'instructions')
-  await fs.writeFile(global, contents.global)
-  await fs.symlink(global, join(home, '.gemini', 'GEMINI.md'))
-  await fs.writeFile(outside, 'OUTSIDE_PRIVATE')
-  await fs.writeFile(inside, contents.internal)
-  await fs.symlink(inside, join(repo, 'GEMINI.md'))
-  await fs.writeFile(join(repo, 'AGENTS.md'), contents.filler)
-  await fs.writeFile(join(child, 'GEMINI.md'), contents.filler)
-  await fs.symlink(outside, join(child, 'AGENTS.md'))
-  const append = await read(child)
-  expect(append).toContain('GLOBAL_RULE')
-  expect(append).toContain('INTERNAL_RULE')
-  expect(append).not.toContain('OUTSIDE_PRIVATE')
-  expect(append).not.toContain(outside)
+)
+
+it.skipIf(process.platform === 'win32')(
+  'limits a folder workspace to its own rules and skips I/O without the advertised capability',
+  async () => {
+    const { root, repo, read } = await workspace()
+    await fs.writeFile(join(root, 'AGENTS.md'), 'OUTSIDE')
+    await fs.writeFile(join(repo, 'GEMINI.md'), 'FOLDER')
+    const stat = vi.mocked(fs.stat)
+    const actualStat = stat.getMockImplementation()!
+    // Model a folder outside Git even when the system temp directory has a Git ancestor.
+    stat.mockImplementation(async (...args) => {
+      if (basename(String(args[0])) === '.git') {
+        throw new Error('No repository marker')
+      }
+      return actualStat(...args)
+    })
+    onTestFinished(() => {
+      stat.mockImplementation(actualStat)
+    })
+    const append = await read()
+    expect(append).toContain('FOLDER')
+    expect(append).not.toContain('OUTSIDE')
+    vi.clearAllMocks()
+    expect(await read(repo, { ...fixture.initialize, agentCapabilities: {} })).toBe('')
+    expect(fs.stat).not.toHaveBeenCalled()
+    expect(fs.realpath).not.toHaveBeenCalled()
+  }
+)
+
+// The case stages rule files as links, and a file link needs the symlink privilege on Windows.
+describe.skipIf(process.platform === 'win32')('outside workspace links', () => {
+  it.each([
+    { name: 'inline', global: 'GLOBAL_RULE', internal: 'INTERNAL_RULE', filler: 'FILLER' },
+    {
+      name: 'saturated',
+      global: 'GLOBAL_RULE\n'.repeat(3_000),
+      internal: 'INTERNAL_RULE\n'.repeat(3_000),
+      filler: 'FILLER\n'.repeat(4_000)
+    }
+  ])('excludes outside workspace links before reads or pointers when $name', async (contents) => {
+    const { root, home, repo, read } = await workspace()
+    const child = join(repo, 'nested')
+    await fs.mkdir(child)
+    await fs.mkdir(join(repo, '.git'))
+    const global = join(root, 'global-instructions')
+    const outside = join(root, 'outside-instructions')
+    const inside = join(repo, 'instructions')
+    await fs.writeFile(global, contents.global)
+    await fs.symlink(global, join(home, '.gemini', 'GEMINI.md'))
+    await fs.writeFile(outside, 'OUTSIDE_PRIVATE')
+    await fs.writeFile(inside, contents.internal)
+    await fs.symlink(inside, join(repo, 'GEMINI.md'))
+    await fs.writeFile(join(repo, 'AGENTS.md'), contents.filler)
+    await fs.writeFile(join(child, 'GEMINI.md'), contents.filler)
+    await fs.symlink(outside, join(child, 'AGENTS.md'))
+    const append = await read(child)
+    expect(append).toContain('GLOBAL_RULE')
+    expect(append).toContain('INTERNAL_RULE')
+    expect(append).not.toContain('OUTSIDE_PRIVATE')
+    expect(append).not.toContain(outside)
+  })
 })
 
 it('uses opened-file facts to keep complete lines when a rule grows during activation', async () => {

@@ -65,7 +65,9 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true })
 })
 
-describe('state snapshot commands, run for real', () => {
+// These run the generated commands through /bin/sh to catch POSIX shell-semantic errors, so the
+// suite only means anything where that shell exists.
+describe.skipIf(process.platform === 'win32')('state snapshot commands, run for real', () => {
   it('requires an intact comparison snapshot before an older build can restart', () => {
     expect(
       orcadSnapshotIsUnchanged(
@@ -193,7 +195,9 @@ describe('state snapshot commands, run for real', () => {
   })
 })
 
-describe('liveness and stop commands, run for real', () => {
+// These run the generated commands through /bin/sh to catch POSIX shell-semantic errors, so the
+// suite only means anything where that shell exists.
+describe.skipIf(process.platform === 'win32')('liveness and stop commands, run for real', () => {
   it('reports a reused PID running something other than this slot as DEAD', () => {
     const stranger = spawn('/bin/sh', ['-c', 'sleep 30'], { stdio: 'ignore' })
     try {
