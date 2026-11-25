@@ -127,6 +127,19 @@ export function invalidateWslOwnerUsage(distro: string, provider: 'claude' | 'co
   }
 }
 
+/** A local distro's account changed: drop that provider's reading and re-read the distro.
+ *  No host stream pushes a distro selection, so every selection path calls this. */
+export function noteWslAccountSelection(
+  distro: string | null | undefined,
+  provider: 'claude' | 'codex'
+): void {
+  if (!distro) {
+    return
+  }
+  invalidateWslOwnerUsage(distro, provider)
+  void refreshWslOwnerUsage(distro, true)
+}
+
 /** Delay until an abnormal reading (failed attempt, fetching placeholder, or Retry-After) is
  *  due again; null while the reading is healthy and the poll interval owns it. */
 export function wslOwnerUsageRetryDelayMs(distro: string): number | null {
@@ -190,9 +203,13 @@ export function refreshWslOwnerUsage(distro: string, force = false): Promise<voi
           failed: false,
           attemptAt: now,
           // A provider-level error is still a failed attempt for retry purposes, even when the
-          // previous windows are retained for display.
+          // previous windows are retained for display — including a held provider whose
+          // retained reading is itself an error.
           attemptFailed:
-            rateLimits.claude?.status === 'error' || rateLimits.codex?.status === 'error'
+            rateLimits.claude?.status === 'error' ||
+            rateLimits.codex?.status === 'error' ||
+            (holds.claudeRetryAtMs !== undefined && previous?.claude?.status === 'error') ||
+            (holds.codexRetryAtMs !== undefined && previous?.codex?.status === 'error')
         })
         settled = true
       }

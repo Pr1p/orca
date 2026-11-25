@@ -15,7 +15,6 @@ import {
 import { useActiveAccountOwner } from '@/runtime/provider-accounts/ownership/use-active-account-owner'
 import type { AccountOwner } from '@/runtime/provider-accounts/ownership/wsl-host-account-owner'
 import {
-  invalidateWslOwnerUsage,
   readWslOwnerUsage,
   refreshWslOwnerUsage,
   subscribeWslOwnerUsage,
@@ -70,7 +69,7 @@ export type OwnerUsageRateLimits = {
   /** Null when this device owns the shown usage. */
   remoteOwner: RemoteUsageOwner | null
   /** Forces the owning host to re-read usage; null when this device owns it. */
-  refreshRemote: ((options?: { invalidate?: 'claude' | 'codex' }) => Promise<void>) | null
+  refreshRemote: (() => Promise<void>) | null
 }
 
 /** Read provider usage from the focused workspace’s account owner, including that host’s own remote snapshot. */
@@ -163,35 +162,28 @@ export function useAccountOwnerUsage(
     }
   }, [wslDistro])
 
-  const refreshRemote = useCallback(
-    async (options?: { invalidate?: 'claude' | 'codex' }) => {
-      if (wslDistro) {
-        // A switched account's fresh read must not fall back to the previous account's windows.
-        if (options?.invalidate) {
-          invalidateWslOwnerUsage(wslDistro, options.invalidate)
-        }
-        await refreshWslOwnerUsage(wslDistro, true)
-        return
-      }
-      if (!ownerId) {
-        return
-      }
-      const startedOn = currentOwnerAccountsStream(ownerId)
-      try {
-        const snapshot = await callRuntimeRpc<ProviderAccountsSnapshot>(
-          { kind: 'environment', environmentId: ownerId },
-          'accounts.list',
-          { refreshUsage: true },
-          { timeoutMs: REMOTE_USAGE_REFRESH_TIMEOUT_MS }
-        )
-        // Keyed by host and stream, so a refresh that outlives an owner switch never becomes current.
-        applyOwnerAccountsSnapshot(ownerId, snapshot, startedOn)
-      } catch {
-        // Why: a slow forced refresh is not loss of contact; the stream owns reachability.
-      }
-    },
-    [ownerId, wslDistro]
-  )
+  const refreshRemote = useCallback(async () => {
+    if (wslDistro) {
+      await refreshWslOwnerUsage(wslDistro, true)
+      return
+    }
+    if (!ownerId) {
+      return
+    }
+    const startedOn = currentOwnerAccountsStream(ownerId)
+    try {
+      const snapshot = await callRuntimeRpc<ProviderAccountsSnapshot>(
+        { kind: 'environment', environmentId: ownerId },
+        'accounts.list',
+        { refreshUsage: true },
+        { timeoutMs: REMOTE_USAGE_REFRESH_TIMEOUT_MS }
+      )
+      // Keyed by host and stream, so a refresh that outlives an owner switch never becomes current.
+      applyOwnerAccountsSnapshot(ownerId, snapshot, startedOn)
+    } catch {
+      // Why: a slow forced refresh is not loss of contact; the stream owns reachability.
+    }
+  }, [ownerId, wslDistro])
 
   const remoteOwner = useMemo<RemoteUsageOwner | null>(
     () =>

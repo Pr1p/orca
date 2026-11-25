@@ -10,6 +10,7 @@ import { RuntimeRpcCallError } from '../../rpc/calls/runtime-rpc-result'
 import type { RuntimeClientTarget } from '../../../../../shared/remote-runtime/host-catalog/runtime-client-target'
 import { translate } from '@/i18n/i18n'
 import { readClaudeRunningSessionsPolicy } from '@/lib/provider-accounts/claude-account-switch-sessions'
+import { noteWslAccountSelection } from './wsl-owner-usage-store'
 
 // Mirrors OrcaRuntime.getAccountsSnapshot() / the accounts.subscribe payload.
 export type ProviderAccountsSnapshot = {
@@ -237,7 +238,9 @@ export async function selectClaudeProviderAccount(
       { timeoutMs: REMOTE_ACCOUNT_MUTATION_TIMEOUT_MS }
     )
   }
-  return window.api.claudeAccounts.select(selection)
+  const selected = await window.api.claudeAccounts.select(selection)
+  noteWslAccountSelection(selection.wslDistro, 'claude')
+  return selected
 }
 
 export async function selectCodexProviderAccount(
@@ -252,7 +255,9 @@ export async function selectCodexProviderAccount(
       { timeoutMs: REMOTE_ACCOUNT_MUTATION_TIMEOUT_MS }
     )
   }
-  return window.api.codexAccounts.select(selection)
+  const selected = await window.api.codexAccounts.select(selection)
+  noteWslAccountSelection(selection.wslDistro, 'codex')
+  return selected
 }
 
 export async function removeClaudeProviderAccount(

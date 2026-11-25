@@ -74,6 +74,13 @@ it('passes a pending Retry-After to the read and keeps the held provider’s rea
   // Claude was held at the source (null) and keeps its 429 reading; Codex still refreshed.
   expect(cached?.rateLimits.claude?.usageMetadata?.retryAtMs).toBe(firstRetryAt)
   expect(cached?.rateLimits.codex?.session?.usedPercent).toBe(20)
+  // The held provider's retained error keeps the short retry clock running.
+  expect(cached?.attemptFailed).toBe(true)
+
+  // Once the window passes, the retry is admitted instead of waiting for the poll interval.
+  vi.advanceTimersByTime((firstRetryAt ?? 0) - Date.now())
+  await refreshWslOwnerUsage('Ubuntu')
+  expect(readUsageForRuntimeTarget).toHaveBeenCalledTimes(3)
 
   // A settled read still waits the poll cadence.
   clearWslOwnerUsageReads()

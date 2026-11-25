@@ -327,6 +327,14 @@
       }
     },
     {
+      "files": [
+        "src/renderer/src/runtime/provider-accounts/observations/runtime-provider-accounts-client.ts"
+      ],
+      "rules": {
+        "max-lines": ["error", { "max": 320, "skipBlankLines": true, "skipComments": true }]
+      }
+    },
+    {
       "files": ["**/*.tsx"],
       "rules": {
         "max-lines": ["error", { "max": 400, "skipBlankLines": true, "skipComments": true }]

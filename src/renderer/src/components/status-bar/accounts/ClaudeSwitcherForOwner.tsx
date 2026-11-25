@@ -171,10 +171,6 @@ export function ClaudeSwitcherForOwner({
       if (!hasActiveRuntimeEnvironment) {
         await fetchSettings()
       }
-      // Why: a distro selection changes its own reading, which no stream pushes to the footer.
-      if (wslHostDistro) {
-        void ownerUsage.refreshRemote?.({ invalidate: 'claude' })
-      }
       const nextActiveAccountId = getClaudeStatusActiveId(next, target)
       if (runningSessions || (!chatAction && previousActiveAccountId !== nextActiveAccountId)) {
         void handleRunningClaudeSessionsAfterSwitch({
