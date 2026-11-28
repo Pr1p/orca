@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { Pressable, Text, View } from 'react-native'
 import { MobileNativeChatOwnedScrollView } from '../viewport/MobileNativeChatOwnedScrollView'
 import { ChevronRight, FileMinus2, FilePen, FilePlus2 } from 'lucide-react-native'
-import { nativeChatEditFilePatchText } from '../../../../../../src/shared/native-chat/tools/native-chat-edit-cards'
+import { nativeChatEditFileCopyText } from '../../../../../../src/shared/native-chat/tools/native-chat-edit-cards'
 import {
   nativeChatEditFileBaseName,
   nativeChatEditGutterChars,
@@ -147,7 +147,7 @@ export function MobileNativeChatDiffCard({
   const verbs = nativeChatToolRowVerbCopy(t)
   const [expanded, setExpanded] = useMobileNativeChatDisclosure(disclosureKey, initialOpen)
   const hasBody = file.lines.length > 0
-  const copyText = useMemo(() => nativeChatEditFilePatchText(file.lines), [file.lines])
+  const copyText = useMemo(() => nativeChatEditFileCopyText(file.lines), [file.lines])
   const type = toolType(fontScale)
   const iconSize = 15 * fontScale
   const chatOpenFile = useMobileNativeChatOpenFile()

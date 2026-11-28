@@ -19,11 +19,11 @@ export const NATIVE_CHAT_DIFF_CARD_COPY = {
   copyDiff: 'Copy diff'
 } as const
 
-/** A card's rows as unified patch text, for its copy button. */
-export function nativeChatEditFilePatchText(lines: readonly NativeChatEditLine[]): string {
+/** A card's post-edit text, for its copy button: the +/- gutter is display-only, like editor diffs. */
+export function nativeChatEditFileCopyText(lines: readonly NativeChatEditLine[]): string {
   return lines
-    .filter((line) => line.kind !== 'gap')
-    .map((line) => `${line.kind === 'add' ? '+' : line.kind === 'del' ? '-' : ' '}${line.text}`)
+    .filter((line) => line.kind === 'add' || line.kind === 'context')
+    .map((line) => line.text)
     .join('\n')
 }
 

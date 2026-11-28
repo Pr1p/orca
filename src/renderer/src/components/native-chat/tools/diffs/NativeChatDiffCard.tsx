@@ -8,7 +8,7 @@ import { DiffLineCounts } from '../../../right-sidebar/source-control/listing/di
 import { NativeChatCopyButton } from '../../messages/actions/NativeChatCopyButton'
 import { NativeChatToolFileTarget } from '../lines/NativeChatToolFileTarget'
 import { nativeChatToolRowVerb } from '../lines/native-chat-tool-line-label'
-import { nativeChatEditFilePatchText } from '../../../../../../shared/native-chat/tools/native-chat-edit-cards'
+import { nativeChatEditFileCopyText } from '../../../../../../shared/native-chat/tools/native-chat-edit-cards'
 import {
   nativeChatEditFileBaseName,
   nativeChatEditGutterChars,
@@ -140,7 +140,7 @@ export function NativeChatDiffCard({
       onReveal?.(cardRef.current)
     }
   }, [revealSignal, onReveal, setExpanded])
-  const copyText = useMemo(() => nativeChatEditFilePatchText(file.lines), [file.lines])
+  const copyText = useMemo(() => nativeChatEditFileCopyText(file.lines), [file.lines])
   const hasBody = file.lines.length > 0
   const gutterWidth = nativeChatEditGutterChars(file)
 
