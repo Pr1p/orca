@@ -21,9 +21,10 @@ export const NATIVE_CHAT_DIFF_CARD_COPY = {
 
 /** A card's post-edit text, for its copy button: the +/- gutter is display-only, like editor diffs. */
 export function nativeChatEditFileCopyText(lines: readonly NativeChatEditLine[]): string {
+  // Hunks are not adjacent; mark the unshown lines instead of splicing them together.
   return lines
-    .filter((line) => line.kind === 'add' || line.kind === 'context')
-    .map((line) => line.text)
+    .filter((line) => line.kind !== 'del')
+    .map((line) => (line.kind === 'gap' ? '…' : line.text))
     .join('\n')
 }
 
